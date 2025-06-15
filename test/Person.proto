@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+import "address.proto";
+package fb;
+
+enum Color
+{
+    Red = 0;
+    Green = 5;
+    Yellow = 6;
+    Blue = 9;
+}
+
+message Person
+{
+    int32 id = 1;
+    repeated bytes name = 2;
+    bytes sex = 3;
+    int32 age = 4;
+    ffb.Address addr = 5;
+    Color color = 6;
+}
+

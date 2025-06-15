@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+enum RequestCode
+{
+    UserLogin = 0;
+    Register = 1;
+    AesFenFa = 2;
+    AutoRoom = 3;
+    ManualRoom = 4;
+    SearchRoom = 5;
+    GrabLord = 6;
+    PlayAHand = 7;
+    GameOver = 8;
+    Continue = 9;
+    LeaveRoom = 10;
+    GoodBye = 11;
+}
+
+enum ResponseCode
+{
+    LoginOk = 0;
+    RegisterOk = 1;
+    RsaFenFa = 2;
+    AesVerifyOk = 3;
+    JoinRoomOK = 4;
+    StartGame = 5;
+    SearchRoomOK = 6;
+    DealCards = 7;
+    OtherGrabLord = 8;
+    OtherPlayHand = 9;
+    OtherLeaveRoom = 10;
+    Failed = 11;
+}
+
+message Information
+{
+    string username = 1;
+    string roomname = 2;
+    string data1 = 3;
+    string data2 = 4;
+    string data3 = 5;
+    RequestCode reqCode = 6;
+    ResponseCode resCode = 7;
+}
