@@ -37,11 +37,25 @@ public:
 	//事务回滚
 	void rollback();
 
+
+	// 新增：参数化查询接口
+    bool prepare(const string& sql);
+    bool bindParam(MYSQL_BIND* bind);
+    bool execute();
+    bool storeResult();
+    bool fetch();
+	bool fetchInt(int& out);
+    string getString(int index);
+    void closeStmt();
+
 private:
 	void freeRes();
 
 	MYSQL* m_conn = nullptr;
 	MYSQL_RES* m_res = nullptr;
 	MYSQL_ROW m_row = nullptr;
+
+	// 新增
+    MYSQL_STMT* m_stmt = nullptr;
 };
 

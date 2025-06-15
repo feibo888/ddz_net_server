@@ -159,24 +159,110 @@ void Communication::handleAesFenFa(Message* reqMsg, Message& resMsg)
 
 void Communication::handleRegister(Message *reqMsg, Message &resMsg)
 {
-    //查询数据库中是否有该用户
-    char sql[1024];
-    sprintf(sql, "select name from user where name = '%s';", reqMsg->userName.data());
+    // //查询数据库中是否有该用户
+    // char sql[1024];
+    // sprintf(sql, "select name from user where name = '%s';", reqMsg->userName.data());
 
-    bool flag = m_mysql->query(sql);
+    // bool flag = m_mysql->query(sql);
 
-    if (flag && !m_mysql->next())           //查询操作成功但是没有数据
+    // if (flag && !m_mysql->next())           //查询操作成功但是没有数据
+    // {
+    //     //将注册信息写到数据库中
+    //     m_mysql->transaction();
+    //     sprintf(sql, "insert into user (name, passwd, phone, date) values('%s', '%s', '%s', now());",
+    //                                                                                     reqMsg->userName.data(),
+    //                                                                                     reqMsg->data1.data(),
+    //                                                                                     reqMsg->data2.data());
+    //     bool fl1 = m_mysql->update(sql);
+
+    //     sprintf(sql, "insert into information (name, score, status) values('%s', 0, 0);", reqMsg->userName.data());
+    //     bool fl2 = m_mysql->update(sql);
+
+    //     if (fl1 && fl2)
+    //     {
+    //         m_mysql->commit();
+    //         resMsg.resCode = ResponseCode::RegisterOk;
+    //     }
+    //     else
+    //     {
+    //         m_mysql->rollback();
+    //         resMsg.resCode = ResponseCode::Failed;
+    //         resMsg.data1 = "数据库插入数据失败";
+    //     }
+    // }
+    // else
+    // {
+    //     resMsg.resCode = ResponseCode::Failed;
+    //     resMsg.data1 = "用户名已存在，无法注册";
+    // }
+
+
+    // 1. 查询数据库中是否有该用户
+    std::string sql = "select name from user where name = ?";
+    if (!m_mysql->prepare(sql)) {
+        resMsg.resCode = ResponseCode::Failed;
+        resMsg.data1 = "数据库操作失败";
+        return;
+    }
+    std::string name = reqMsg->userName;
+    MYSQL_BIND bind[1] = {0};
+    bind[0].buffer_type = MYSQL_TYPE_STRING;
+    bind[0].buffer = (void*)name.c_str();
+    bind[0].buffer_length = name.size();
+
+    if (!m_mysql->bindParam(bind) || !m_mysql->execute() || !m_mysql->storeResult()) {
+        resMsg.resCode = ResponseCode::Failed;
+        resMsg.data1 = "数据库操作失败";
+        m_mysql->closeStmt();
+        return;
+    }
+
+    bool exists = m_mysql->fetch();
+    m_mysql->closeStmt();
+
+    if (!exists) // 没有该用户，可以注册
     {
-        //将注册信息写到数据库中
         m_mysql->transaction();
-        sprintf(sql, "insert into user (name, passwd, phone, date) values('%s', '%s', '%s', now());",
-                                                                                        reqMsg->userName.data(),
-                                                                                        reqMsg->data1.data(),
-                                                                                        reqMsg->data2.data());
-        bool fl1 = m_mysql->update(sql);
 
-        sprintf(sql, "insert into information (name, score, status) values('%s', 0, 0);", reqMsg->userName.data());
-        bool fl2 = m_mysql->update(sql);
+        // 2. 插入user表
+        std::string insertUserSql = "insert into user (name, passwd, phone, date) values (?, ?, ?, now())";
+        if (!m_mysql->prepare(insertUserSql)) {
+            m_mysql->rollback();
+            resMsg.resCode = ResponseCode::Failed;
+            resMsg.data1 = "数据库操作失败";
+            return;
+        }
+        std::string passwd = reqMsg->data1;
+        std::string phone = reqMsg->data2;
+        MYSQL_BIND insertBind[3] = {0};
+        insertBind[0].buffer_type = MYSQL_TYPE_STRING;
+        insertBind[0].buffer = (void*)name.c_str();
+        insertBind[0].buffer_length = name.size();
+        insertBind[1].buffer_type = MYSQL_TYPE_STRING;
+        insertBind[1].buffer = (void*)passwd.c_str();
+        insertBind[1].buffer_length = passwd.size();
+        insertBind[2].buffer_type = MYSQL_TYPE_STRING;
+        insertBind[2].buffer = (void*)phone.c_str();
+        insertBind[2].buffer_length = phone.size();
+
+        bool fl1 = m_mysql->bindParam(insertBind) && m_mysql->execute();
+        m_mysql->closeStmt();
+
+        // 3. 插入information表
+        std::string insertInfoSql = "insert into information (name, score, status) values (?, 0, 0)";
+        if (!m_mysql->prepare(insertInfoSql)) {
+            m_mysql->rollback();
+            resMsg.resCode = ResponseCode::Failed;
+            resMsg.data1 = "数据库操作失败";
+            return;
+        }
+        MYSQL_BIND infoBind[1] = {0};
+        infoBind[0].buffer_type = MYSQL_TYPE_STRING;
+        infoBind[0].buffer = (void*)name.c_str();
+        infoBind[0].buffer_length = name.size();
+
+        bool fl2 = m_mysql->bindParam(infoBind) && m_mysql->execute();
+        m_mysql->closeStmt();
 
         if (fl1 && fl2)
         {
@@ -200,29 +286,93 @@ void Communication::handleRegister(Message *reqMsg, Message &resMsg)
 
 void Communication::handleLogin(Message *reqMsg, Message &resMsg)
 {
-    char sql[1024];
-    sprintf(sql, "select name from user where name = '%s' and passwd = '%s' and (select count(*) from information where name = '%s' and status = 0);",
-                                                                            reqMsg->userName.data(), reqMsg->data1.data(), reqMsg->userName.data());
+    // char sql[1024];
+    // sprintf(sql, "select name from user where name = '%s' and passwd = '%s' and (select count(*) from information where name = '%s' and status = 0);",
+    //                                                                         reqMsg->userName.data(), reqMsg->data1.data(), reqMsg->userName.data());
 
 
-    bool flag = m_mysql->query(sql);
+    // bool flag = m_mysql->query(sql);
 
-    if (flag && m_mysql->next())
-    {
+    // if (flag && m_mysql->next())
+    // {
+    //     m_mysql->transaction();
+    //     sprintf(sql, "update information set status = 1 where name = '%s';", reqMsg->userName.data());
+    //     bool flag1 = m_mysql->update(sql);
+
+    //     if (flag1)
+    //     {
+    //         m_mysql->commit();
+    //         resMsg.resCode = ResponseCode::LoginOk;
+    //         return;
+    //     }
+    //     m_mysql->rollback();
+    // }
+    // resMsg.resCode = ResponseCode::Failed;
+    // resMsg.data1 = "用户名或密码错误，或者当前玩家已经成功登录...";
+
+
+
+    // 参数化查询：查找用户
+    std::string sql = "select name from user where name = ? and passwd = ? and "
+                      "(select count(*) from information where name = ? and status = 0)";
+    if (!m_mysql->prepare(sql)) {
+        resMsg.resCode = ResponseCode::Failed;
+        resMsg.data1 = "数据库操作失败";
+        return;
+    }
+
+    MYSQL_BIND bind[3] = {0};
+    // name
+    bind[0].buffer_type = MYSQL_TYPE_STRING;
+    bind[0].buffer = (void*)reqMsg->userName.data();
+    bind[0].buffer_length = reqMsg->userName.size();
+    // passwd
+    bind[1].buffer_type = MYSQL_TYPE_STRING;
+    bind[1].buffer = (void*)reqMsg->data1.data();
+    bind[1].buffer_length = reqMsg->data1.size();
+    // name again
+    bind[2].buffer_type = MYSQL_TYPE_STRING;
+    bind[2].buffer = (void*)reqMsg->userName.data();
+    bind[2].buffer_length = reqMsg->userName.size();
+
+    if (!m_mysql->bindParam(bind) || !m_mysql->execute() || !m_mysql->storeResult()) {
+        resMsg.resCode = ResponseCode::Failed;
+        resMsg.data1 = "数据库操作失败";
+        m_mysql->closeStmt();
+        return;
+    }
+
+    if (m_mysql->fetch()) {
+        m_mysql->closeStmt();
+        // 登录成功，更新状态
         m_mysql->transaction();
-        sprintf(sql, "update information set status = 1 where name = '%s';", reqMsg->userName.data());
-        bool flag1 = m_mysql->update(sql);
+        std::string updateSql = "update information set status = 1 where name = ?";
+        if (!m_mysql->prepare(updateSql)) {
+            m_mysql->rollback();
+            resMsg.resCode = ResponseCode::Failed;
+            resMsg.data1 = "数据库操作失败";
+            return;
+        }
+        MYSQL_BIND updateBind[1] = {0};
+        updateBind[0].buffer_type = MYSQL_TYPE_STRING;
+        updateBind[0].buffer = (void*)reqMsg->userName.data();
+        updateBind[0].buffer_length = reqMsg->userName.size();
 
-        if (flag1)
-        {
+        bool flag1 = m_mysql->bindParam(updateBind) && m_mysql->execute();
+        m_mysql->closeStmt();
+
+        if (flag1) {
             m_mysql->commit();
             resMsg.resCode = ResponseCode::LoginOk;
             return;
         }
         m_mysql->rollback();
+    } else {
+        m_mysql->closeStmt();
     }
     resMsg.resCode = ResponseCode::Failed;
     resMsg.data1 = "用户名或密码错误，或者当前玩家已经成功登录...";
+
 }
 
 void Communication::handleAddRoom(Message *reqMsg, Message &resMsg)
@@ -256,13 +406,36 @@ void Communication::handleAddRoom(Message *reqMsg, Message &resMsg)
         //第一次加载分数，在redis中更新分数，最后将分数同步到mysql
         if (score == 0)
         {
-            //查询mysql, 并将其存储到redis中
-            std::string sql = "select score from information where name = '" + reqMsg->userName + "';";
+            // //查询mysql, 并将其存储到redis中
+            // std::string sql = "select score from information where name = '" + reqMsg->userName + "';";
 
-            bool flag1 = m_mysql->query(sql);
-            assert(flag1);
-            m_mysql->next();
-            score = std::stoi(m_mysql->value(0));
+            // bool flag1 = m_mysql->query(sql);
+            // assert(flag1);
+            // m_mysql->next();
+            // score = std::stoi(m_mysql->value(0));
+
+            // 参数化查询mysql, 并将其存储到redis中
+            std::string sql = "select score from information where name = ?";
+            if (m_mysql->prepare(sql)) {
+                cout << "userName: " << reqMsg->userName << " 开始查询分数" << endl;
+
+                std::string name = reqMsg->userName;
+                MYSQL_BIND bind[1] = {0};
+                bind[0].buffer_type = MYSQL_TYPE_STRING;
+                bind[0].buffer = (void*)name.c_str();
+                bind[0].buffer_length = name.size();
+
+                if (m_mysql->bindParam(bind) && m_mysql->execute() && m_mysql->storeResult()) {
+                    cout << "userName: " << reqMsg->userName << " 开始转换分数 " << endl;
+                    
+                    int scoreResult = 0;
+                    if (m_mysql->fetchInt(scoreResult)) {
+                        score = scoreResult;
+                        cout << "userName: " << reqMsg->userName << " 转换分数完成：" << score << endl;
+                    }
+                }
+                m_mysql->closeStmt();
+            }
         }
         m_redis->UpdatePlayerScore(roomName, reqMsg->userName, score);
 
@@ -300,24 +473,58 @@ void Communication::handleLeaveRoom(Message* reqMsg, Message& resMsg)
 
 void Communication::handleGoodBye(Message *reqMsg)
 {
-    //修改玩家的登录状态
-    char sql[1024] = {0};
-    sprintf(sql, "update information set status = 0 where name = '%s';", reqMsg->userName.data());
-    cout << sql << endl;
-    m_mysql->update(sql);
-    //和客户端断开连接
+    // //修改玩家的登录状态
+    // char sql[1024] = {0};
+    // sprintf(sql, "update information set status = 0 where name = '%s';", reqMsg->userName.data());
+    // cout << sql << endl;
+    // m_mysql->update(sql);
+    // //和客户端断开连接
+    // m_deleteCallback();
+
+    // 参数化更新玩家的登录状态
+    std::string sql = "update information set status = 0 where name = ?";
+    if (m_mysql->prepare(sql)) {
+        std::string name = reqMsg->userName;
+        MYSQL_BIND bind[1] = {0};
+        bind[0].buffer_type = MYSQL_TYPE_STRING;
+        bind[0].buffer = (void*)name.c_str();
+        bind[0].buffer_length = name.size();
+        m_mysql->bindParam(bind);
+        m_mysql->execute();
+        m_mysql->closeStmt();
+    }
+    // 和客户端断开连接
     m_deleteCallback();
 }
 
 void Communication::handleGameOver(Message *reqMsg)
 {
+    // int score = std::stoi(reqMsg->data1);
+    // //redis
+    // m_redis->UpdatePlayerScore(reqMsg->roomName, reqMsg->userName, score);
+    // //mysql
+    // char sql[1024];
+    // sprintf(sql, "update information set score = %d where name = '%s';", score, reqMsg->userName.data());
+    // m_mysql->update(sql);
+
     int score = std::stoi(reqMsg->data1);
-    //redis
+    // redis
     m_redis->UpdatePlayerScore(reqMsg->roomName, reqMsg->userName, score);
-    //mysql
-    char sql[1024];
-    sprintf(sql, "update information set score = %d where name = '%s';", score, reqMsg->userName.data());
-    m_mysql->update(sql);
+    // mysql 参数化更新分数
+    std::string sql = "update information set score = ? where name = ?";
+    if (m_mysql->prepare(sql)) {
+        std::string name = reqMsg->userName;
+        MYSQL_BIND bind[2] = {0};
+        bind[0].buffer_type = MYSQL_TYPE_LONG;
+        bind[0].buffer = &score;
+        bind[0].is_unsigned = 0;
+        bind[1].buffer_type = MYSQL_TYPE_STRING;
+        bind[1].buffer = (void*)name.c_str();
+        bind[1].buffer_length = name.size();
+        m_mysql->bindParam(bind);
+        m_mysql->execute();
+        m_mysql->closeStmt();
+    }
 }
 
 void Communication::handleSearchRoom(Message *reqMsg, Message &resMsg)
