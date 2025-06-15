@@ -2,4 +2,4 @@ cmake-build-debug/
 cmake-build-simple_http_debug/
 build/
 resources/
-.idea
+.idea/
