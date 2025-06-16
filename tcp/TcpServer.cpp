@@ -3,6 +3,7 @@
 #include <fstream>
 #include <RsaCrypto.h>
 #include <sstream>
+#include <glog/logging.h>
 
 #include "Room.h"
 
@@ -14,6 +15,8 @@ int TcpServer::acceptConnection(void* arg)
 	EventLoop* evLoop = server->m_threadPool->takeWorkerEventLoop();
 	//将cfd放到TcpConnection中处理
 	TcpConnection* conn = new TcpConnection(cfd, evLoop);
+
+	LOG(INFO) << "TcpServer::acceptConnection, cfd: " << cfd << ", evLoop: " << evLoop->getThreadID();
 
 	return 0;
 }
@@ -68,6 +71,7 @@ TcpServer::~TcpServer()
 
 void TcpServer::setListen()
 {
+	LOG(INFO) << "start setListen";
 	m_lfd = socket(AF_INET, SOCK_STREAM, 0);
 
 	if (m_lfd == -1)
@@ -102,15 +106,20 @@ void TcpServer::setListen()
 		perror("listen");
 		return;
 	}
+
+	LOG(INFO) << "setListen OK, lfd: " << m_lfd << " port: " << m_port;
 }
 
 void TcpServer::run()
 {
+	LOG(INFO) << "start run";
 	//生成并保存rsa密钥到redis
 	saveRsaKey();
+	LOG(INFO) << "RSA Key Generation over";
 
 	//启动线程池
 	m_threadPool->run();
+	LOG(INFO) << "threadPool run";
 
 	//添加检测的任务
 	Channel* channel = new Channel(m_lfd, (int)FDEvent::ReadEvent, acceptConnection, NULL, NULL, this);

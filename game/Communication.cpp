@@ -7,6 +7,7 @@
 #include <RsaCrypto.h>
 #include <netinet/in.h>
 #include <memory>
+#include <glog/logging.h>
 
 #include "JsonParse.h"
 #include "RoomList.h"
@@ -55,9 +56,7 @@ void Communication::parseRequest(Buffer* buf)
     string data = buf->data(sizeof(int));
     int length = *(int*)data.data();
     //读数据块
-    cout << "数据头长度（大端）：" << length << endl;
     length = ntohl(length);
-    cout << "数据头长度（小端）：" << length << endl;
     data = buf->data(length);
 
     if (m_aes)
@@ -152,7 +151,7 @@ void Communication::handleAesFenFa(Message* reqMsg, Message& resMsg)
     else
     {
         m_aes = new AesCrypto(AesCrypto::AES_CBC_256, aesKey);
-        cout << "AesFenFa success" << endl;
+        LOG(INFO) << "AesFenFa success";
     }
 
 }
@@ -268,6 +267,7 @@ void Communication::handleRegister(Message *reqMsg, Message &resMsg)
         {
             m_mysql->commit();
             resMsg.resCode = ResponseCode::RegisterOk;
+            LOG(INFO) << "user register OK: " << name;
         }
         else
         {
@@ -364,6 +364,7 @@ void Communication::handleLogin(Message *reqMsg, Message &resMsg)
         if (flag1) {
             m_mysql->commit();
             resMsg.resCode = ResponseCode::LoginOk;
+            LOG(INFO) << "user login success: " << reqMsg->userName;
             return;
         }
         m_mysql->rollback();
@@ -417,7 +418,6 @@ void Communication::handleAddRoom(Message *reqMsg, Message &resMsg)
             // 参数化查询mysql, 并将其存储到redis中
             std::string sql = "select score from information where name = ?";
             if (m_mysql->prepare(sql)) {
-                cout << "userName: " << reqMsg->userName << " 开始查询分数" << endl;
 
                 std::string name = reqMsg->userName;
                 MYSQL_BIND bind[1] = {0};
@@ -426,12 +426,11 @@ void Communication::handleAddRoom(Message *reqMsg, Message &resMsg)
                 bind[0].buffer_length = name.size();
 
                 if (m_mysql->bindParam(bind) && m_mysql->execute() && m_mysql->storeResult()) {
-                    cout << "userName: " << reqMsg->userName << " 开始转换分数 " << endl;
                     
                     int scoreResult = 0;
                     if (m_mysql->fetchInt(scoreResult)) {
                         score = scoreResult;
-                        cout << "userName: " << reqMsg->userName << " 转换分数完成：" << score << endl;
+
                     }
                 }
                 m_mysql->closeStmt();
@@ -447,6 +446,8 @@ void Communication::handleAddRoom(Message *reqMsg, Message &resMsg)
         resMsg.resCode = ResponseCode::JoinRoomOK;
         resMsg.data1 = to_string(m_redis->getPlayerCount(roomName));
         resMsg.roomName = roomName;
+
+        LOG(INFO) << "玩家: " << reqMsg->userName << "进入房间: " << reqMsg->roomName;
     }
     else
     {
@@ -469,6 +470,7 @@ void Communication::handleLeaveRoom(Message* reqMsg, Message& resMsg)
         Codec codec(&resMsg);
         item.second(codec.enCodeMsg());
     }
+    LOG(INFO) << "玩家: " << reqMsg->userName << "离开房间: " << reqMsg->roomName;
 }
 
 void Communication::handleGoodBye(Message *reqMsg)

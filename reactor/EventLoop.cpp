@@ -1,5 +1,7 @@
 ﻿#include "EventLoop.h"
 
+#include <glog/logging.h>
+
 
 EventLoop::EventLoop() : EventLoop(string())
 {

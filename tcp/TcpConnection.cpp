@@ -4,6 +4,7 @@
 #include <fstream>
 #include <RsaCrypto.h>
 #include <sstream>
+#include <glog/logging.h>
 
 #include "Room.h"
 
@@ -19,9 +20,7 @@ int TcpConnection::processRead(void* arg)
 	if (count > 0)
 	{
 		//解析斗地主数据
-		cout << "开始解析数据" << endl;
 		conn->m_reply->parseRequest(conn->m_readBuf);
-		cout << "数据解析完毕" << endl;
 	}
 	else
 	{
@@ -120,7 +119,7 @@ void TcpConnection::addWriteTask(string data)
 void TcpConnection::addDeleteTask()
 {
 	m_evLoop->addTask(m_channel, ElemType::DELETE);
-	cout << "断开了可客户端的连接，connName: " << m_name << endl;
+	LOG(INFO) << "和客户端断开连接: " << m_name;
 }
 
 void TcpConnection::prepareSecretKey()
