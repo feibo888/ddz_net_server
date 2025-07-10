@@ -57,6 +57,8 @@ public:
     void restartGame(Message* reqMsg);
     //开始游戏
     void startGame(std::string roomName, userMap players);
+    //同步房间状态到Redis
+    //void syncRoomStateToRedis(std::string roomName, userMap players);
 
 
 
@@ -67,6 +69,8 @@ private:
     MysqlConn* m_mysql = nullptr;
     Room* m_redis = nullptr;
     std::multimap<int, int> m_cards;
+
+
 };
 
 

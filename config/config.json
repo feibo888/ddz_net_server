@@ -4,8 +4,8 @@
     "ip": "localhost",
     "port": 3306,
     "user": "root",
-    "password": "123456",
-    "dbname": "haha"
+    "password": "54188heihei",
+    "dbname": "ddz"
   },
   "redis":
   {

@@ -390,11 +390,11 @@ void Communication::handleAddRoom(Message *reqMsg, Message &resMsg)
     }
 
     bool flag = true;
-
     string roomName;
     if (reqMsg->reqCode == RequestCode::AutoRoom)
     {
-        roomName = m_redis->joinRoom(reqMsg->userName);
+        // 使用无锁算法进行房间匹配
+        roomName = m_redis->joinRoomWithoutLock(reqMsg->userName);
     }
     else
     {
@@ -407,6 +407,7 @@ void Communication::handleAddRoom(Message *reqMsg, Message &resMsg)
         //第一次加载分数，在redis中更新分数，最后将分数同步到mysql
         if (score == 0)
         {
+            // 参数化查询mysql, 并将其存储到redis中
             // //查询mysql, 并将其存储到redis中
             // std::string sql = "select score from information where name = '" + reqMsg->userName + "';";
 
@@ -415,7 +416,6 @@ void Communication::handleAddRoom(Message *reqMsg, Message &resMsg)
             // m_mysql->next();
             // score = std::stoi(m_mysql->value(0));
 
-            // 参数化查询mysql, 并将其存储到redis中
             std::string sql = "select score from information where name = ?";
             if (m_mysql->prepare(sql)) {
 
@@ -430,7 +430,6 @@ void Communication::handleAddRoom(Message *reqMsg, Message &resMsg)
                     int scoreResult = 0;
                     if (m_mysql->fetchInt(scoreResult)) {
                         score = scoreResult;
-
                     }
                 }
                 m_mysql->closeStmt();
@@ -447,7 +446,7 @@ void Communication::handleAddRoom(Message *reqMsg, Message &resMsg)
         resMsg.data1 = to_string(m_redis->getPlayerCount(roomName));
         resMsg.roomName = roomName;
 
-        LOG(INFO) << "玩家: " << reqMsg->userName << "进入房间: " << reqMsg->roomName;
+        LOG(INFO) << "玩家: " << reqMsg->userName << "进入房间: " << roomName;
     }
     else
     {
@@ -565,6 +564,7 @@ void Communication::dealCards(userMap players)
         std::string sub = std::to_string(card.first) + "-" + std::to_string(card.second) + "#";
         all += sub;
     }
+
     //剩余的3张底牌
     std::string& lastCard = msg.data2;
     for (const auto& it : m_cards)
@@ -632,24 +632,63 @@ void Communication::notifyOtherPlayers(std::string data, std::string roomName, s
 void Communication::restartGame(Message *reqMsg)
 {
     cout << "开始处理继续游戏" << endl;
-    //得到房间里的玩家
-    auto players = RoomList::getInstance()->getPlayers(reqMsg->roomName);
-    //判断房间人数
-    if (players.size() == 3)
-    {
-        RoomList::getInstance()->removeRoom(reqMsg->roomName);
-    }
-    //将玩家添加到单例对象中
-    RoomList::getInstance()->addUser(reqMsg->roomName, reqMsg->userName, m_sendCallback);
 
-    cout << " continue game userName: " << reqMsg->userName << " roomName: " << reqMsg->roomName << endl;
+    // 为继续游戏操作加锁，确保同一房间的重启操作串行化
+    std::string restartLockKey = "restart_lock_" + reqMsg->roomName;
 
-    players = RoomList::getInstance()->getPlayers(reqMsg->roomName);
-    if (players.size() == 3)
-    {
-        //发牌并开始游戏
-        startGame(reqMsg->roomName, players);
+    // 增加重试逻辑
+    bool lockAcquired = false;
+    const int maxRetries = 5;  // 最多重试5次
+    const int retryDelayMs = 100;  // 每次重试间隔100毫秒
+
+    for (int i = 0; i < maxRetries; ++i) {
+        if (m_redis->acquireLock(restartLockKey, 10)) {
+            lockAcquired = true;
+            break;
+        }
+        cout << "获取房间锁失败: " << reqMsg->roomName << "，正在重试 (" << (i+1) << "/" << maxRetries << ")" << endl;
+        std::this_thread::sleep_for(std::chrono::milliseconds(retryDelayMs));
     }
+
+    if (!lockAcquired) {
+        cout << "获取房间锁失败: " << reqMsg->roomName << "，达到最大重试次数，放弃处理" << endl;
+        return;
+    }
+
+    try {
+        // 在锁保护下执行继续游戏逻辑
+        auto players = RoomList::getInstance()->getPlayers(reqMsg->roomName);
+        cout << "Current players in room " << reqMsg->roomName << ": " << players.size() << endl;
+
+        // 检查房间是否已满（3人），如果满了需要重置房间状态
+        if (players.size() == 3) {
+            cout << "Room is full, removing existing room state" << endl;
+            RoomList::getInstance()->removeRoom(reqMsg->roomName);
+        }
+
+        // 将当前玩家添加到单例对象中
+        RoomList::getInstance()->addUser(reqMsg->roomName, reqMsg->userName, m_sendCallback);
+        cout << "Added player " << reqMsg->userName << " to room " << reqMsg->roomName << endl;
+
+        // 重新获取房间中的玩家数量
+        players = RoomList::getInstance()->getPlayers(reqMsg->roomName);
+        cout << "Players after adding " << reqMsg->userName << ": " << players.size() << endl;
+
+        // 检查是否达到3人，如果是则开始游戏
+        if (players.size() == 3) {
+            cout << "Room is full, starting game for room: " << reqMsg->roomName << endl;
+            // 在开始游戏前，确保Redis中的房间状态也正确
+            //syncRoomStateToRedis(reqMsg->roomName, players);
+            startGame(reqMsg->roomName, players);
+        }
+
+    } catch (const std::exception& e) {
+        cout << "Error in restartGame: " << e.what() << endl;
+    }
+
+    // 释放锁
+    m_redis->releaseLock(restartLockKey);
+    cout << "继续游戏处理完成，房间: " << reqMsg->roomName << " 玩家: " << reqMsg->userName << endl;
 }
 
 void Communication::startGame(std::string roomName, userMap players)
@@ -672,3 +711,57 @@ void Communication::startGame(std::string roomName, userMap players)
     }
 }
 
+// void Communication::syncRoomStateToRedis(std::string roomName, userMap players)
+// {
+//     try {
+//         // 确保Redis中的房间状态与内存中的状态一致
+//         // 1. 先清理Redis中所有相关的房间集合状态
+//         m_redis->srem("OnePlayer", roomName);
+//         m_redis->srem("TwoPlayers", roomName);
+//         m_redis->srem("ThreePlayers", roomName);
+//         m_redis->srem("Invalid", roomName);
+//
+//         // 如果没有玩家，直接删除房间数据并返回
+//         if (players.empty()) {
+//             m_redis->del(roomName);
+//             return;
+//         }
+//
+//         // 2. 重新添加所有玩家到Redis房间
+//         // 首先清除旧数据，保留分数信息
+//         std::map<std::string, int> playerScores;
+//         for (const auto& player : players) {
+//             const std::string& userName = player.first;
+//             // 先获取玩家现有分数（如果有的话）
+//             int score = m_redis->getPlayerScore(roomName, userName);
+//             playerScores[userName] = score;
+//         }
+//
+//         // 清理房间数据
+//         m_redis->del(roomName);
+//
+//         // 重新设置玩家数据和分数
+//         for (const auto& player : players) {
+//             const std::string& userName = player.first;
+//             m_redis->UpdatePlayerScore(roomName, userName, playerScores[userName]);
+//             // 更新玩家-房间映射
+//             m_redis->hset("Players", userName, roomName);
+//         }
+//
+//         // 3. 根据玩家数量更新房间集合状态
+//         int playerCount = players.size();
+//         if (playerCount == 3) {
+//             m_redis->sadd("ThreePlayers", roomName);
+//         } else if (playerCount == 2) {
+//             m_redis->sadd("TwoPlayers", roomName);
+//         } else if (playerCount == 1) {
+//             m_redis->sadd("OnePlayer", roomName);
+//         }
+//
+//         cout << "房间状态已同步到Redis: " << roomName
+//              << " 玩家数: " << playerCount << endl;
+//
+//     } catch (const std::exception& e) {
+//         cout << "同步房间状态到Redis时出错: " << e.what() << endl;
+//     }
+// }
