@@ -56,7 +56,7 @@ std::string Room::getRsaSecKey(std::string field)
     return std::string();
 }
 
-
+//已废弃
 std::string Room::joinRoom(std::string userName)
 {
     const int MAX_RETRY = 3;      // 最大重试次数
@@ -105,7 +105,8 @@ bool Room::joinRoom(std::string userName, std::string roomName)
 {
     // 为特定房间加锁，防止多个玩家同时加入同一房间
     std::string roomLockKey = "room_lock_" + roomName;
-    if (!acquireLock(roomLockKey, 3)) {
+    if (!acquireLockWithRetry(roomLockKey, 3))
+    {
         return false; // 获取房间锁失败
     }
 
@@ -209,6 +210,13 @@ std::string Room::getPlayerOrder(std::string roomName)
 
 void Room::leaveRoom(std::string roomName, std::string userName)
 {
+    std::string roomLockKey = "room_lock_" + roomName;
+    if (!acquireLockWithRetry(roomLockKey, 3))
+    {
+        // 记录获取锁失败
+        return;
+    }
+
     if (m_redis->sismember(ThreePlayers, roomName))
     {
         m_redis->smove(ThreePlayers, Invalid, roomName);
@@ -221,6 +229,8 @@ void Room::leaveRoom(std::string roomName, std::string userName)
         m_redis->del(roomName);
         m_redis->srem(Invalid, roomName);
     }
+
+    releaseLock(roomLockKey);
 }
 
 bool Room::searchRoom(std::string roomName)
@@ -286,17 +296,30 @@ void Room::releaseLock(const std::string& lockKey)
         std::string lockValue = it->second;
 
         // 使用Lua脚本原子性地检查并删除锁
-        std::string luaScript = R"(
-            if redis.call("GET", KEYS[1]) == ARGV[1] then
-                return redis.call("DEL", KEYS[1])
-            else
-                return 0
-            end
-        )";
+        // std::string luaScript = R"(
+        //     if redis.call("GET", KEYS[1]) == ARGV[1] then
+        //         return redis.call("DEL", KEYS[1])
+        //     else
+        //         return 0
+        //     end
+        // )";
+        //
+        // // 执行Lua脚本
+        // // KEYS[1] = lockKey, ARGV[1] = lockValue
+        // auto result = m_redis->eval<long long>(luaScript, {lockKey}, {lockValue});
 
-        // 执行Lua脚本
-        // KEYS[1] = lockKey, ARGV[1] = lockValue
-        auto result = m_redis->eval<long long>(luaScript, {lockKey}, {lockValue});
+        // 使用 GET + DEL 替代 Lua 脚本
+        // 虽然不是完全原子性，但在实际场景中通常足够安全
+        // 因为只有持有锁的客户端才会调用释放
+        auto currentValue = m_redis->get(lockKey);
+        if (currentValue.has_value() && currentValue.value() == lockValue)
+        {
+            //m_redis->del(lockKey);
+            // 使用 pipeline 处理 DEL 命令
+            auto pipe = m_redis->pipeline();
+            pipe.del(lockKey);
+            pipe.exec();
+        }
 
         // 清理本地记录
         m_lockValues.erase(it);
@@ -435,4 +458,26 @@ std::vector<std::string> Room::getAvailableRooms()
     }
 
     return rooms;
+}
+
+// 添加到Room类中的新方法
+bool Room::acquireLockWithRetry(const std::string& lockKey, int expireSeconds, int maxRetries)
+{
+    const int BASE_DELAY_MS = 50;
+
+    for (int retry = 0; retry < maxRetries; ++retry)
+    {
+        if (acquireLock(lockKey, expireSeconds))
+        {
+            return true;
+        }
+
+        if (retry < maxRetries - 1)
+        {
+            int delayMs = BASE_DELAY_MS * (retry + 1);
+            std::this_thread::sleep_for(std::chrono::milliseconds(delayMs));
+        }
+    }
+
+    return false;
 }

@@ -613,10 +613,11 @@ std::pair<int, int> Communication::takeOneCard()
     auto it = m_cards.begin();
     for (int i = 0; i < randNum; ++i, ++it);
 
+    // 先保存要返回的值，再删除元素
+    auto card = *it;
     m_cards.erase(it);
 
-    return *it;
-
+    return card;
 }
 
 void Communication::notifyOtherPlayers(std::string data, std::string roomName, std::string userName)

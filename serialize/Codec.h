@@ -21,6 +21,11 @@ struct Message
     string data3;
     RequestCode reqCode;
     ResponseCode resCode;
+
+    Message() : userName(""), roomName(""), data1(""), data2(""), data3(""),
+                reqCode(static_cast<RequestCode>(-1)), resCode(static_cast<ResponseCode>(-1))
+    {
+    };
 };
 
 

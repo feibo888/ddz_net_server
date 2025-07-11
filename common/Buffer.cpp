@@ -10,7 +10,7 @@ Buffer::Buffer(int size) : m_capacity(size)
 
 Buffer::~Buffer()
 {
-	if (!m_data)
+	if (m_data)
 	{
 		free(m_data);
 	}
@@ -111,6 +111,7 @@ int Buffer::socketRead(int fd)
 	int result = readv(fd, vec, 2);
 	if (result == -1)
 	{
+		free(tmp);
 		return -1;
 	}
 	else if (result <= writeable)
@@ -123,6 +124,7 @@ int Buffer::socketRead(int fd)
 		appendString(tmp, result - writeable);
 	}
 
+	free(tmp);
 	return result;
 }
 

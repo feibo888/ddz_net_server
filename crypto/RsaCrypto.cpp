@@ -4,6 +4,7 @@
 
 #include "RsaCrypto.h"
 #include <openssl/err.h>
+#include <openssl/crypto.h>
 
 RsaCrypto::RsaCrypto(string fileName, KeyType type)
 {
@@ -53,34 +54,63 @@ void RsaCrypto::generateRsaKey(KeyLength bits, string pub, string pri)
 {
     //创建密钥上下文
     EVP_PKEY_CTX * ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, NULL);
+    if (!ctx) {
+        return;
+    }
+
     //上下文初始化
     int ret = EVP_PKEY_keygen_init(ctx);
-    assert(ret == 1);
+    if (ret != 1) {
+        EVP_PKEY_CTX_free(ctx);
+        return;
+    }
+
     //指定密钥对长度
     ret = EVP_PKEY_CTX_set_rsa_keygen_bits(ctx, bits);
-    assert(ret == 1);
+    if (ret != 1) {
+        EVP_PKEY_CTX_free(ctx);
+        return;
+    }
 
     //生成密钥对
     ret = EVP_PKEY_generate(ctx, &m_priKey);
-    assert(ret == 1);
+    if (ret != 1) {
+        EVP_PKEY_CTX_free(ctx);
+        return;
+    }
+
     //释放上下文
     EVP_PKEY_CTX_free(ctx);
 
     //将私钥写到磁盘文件中
     BIO* bio = BIO_new_file(pri.data(), "wb");
+    if (!bio) {
+        return;
+    }
+
     ret = PEM_write_bio_PrivateKey(bio, m_priKey,
                                        NULL, NULL,
                                        0, NULL, NULL);
-    assert(ret == 1);
     BIO_flush(bio);
     BIO_free(bio);
 
-    //将公钥钥写到磁盘文件中
+    if (ret != 1) {
+        return;
+    }
+
+    //将公钥写到磁盘文件中
     bio = BIO_new_file(pub.data(), "wb");
+    if (!bio) {
+        return;
+    }
+
     ret = PEM_write_bio_PUBKEY(bio, m_priKey);
-    assert(ret == 1);
     BIO_flush(bio);
     BIO_free(bio);
+
+    if (ret != 1) {
+        return;
+    }
 }
 
 string RsaCrypto::pubKeyEncrypt(string data)

@@ -2,9 +2,38 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include "TcpServer.h"
-#include "Mytest.h"
+#include "MyTest.h"
+#include <openssl/crypto.h>
+#include <openssl/err.h>
+#include <signal.h>
 
 #include <glog/logging.h>
+
+// 全局变量，用于信号处理
+TcpServer* g_server = nullptr;
+
+// 信号处理函数
+void signalHandler(int signal) {
+    if (signal == SIGINT) {
+        LOG(INFO) << "收到 SIGINT 信号，开始清理资源...";
+
+    	// 更彻底的 OpenSSL 清理（适用于 OpenSSL 3.x）
+    	OPENSSL_thread_stop();  // 清理线程局部存储
+    	ERR_free_strings();
+    	EVP_cleanup();
+    	CRYPTO_cleanup_all_ex_data();
+
+		// 关闭 glog
+        google::ShutdownGoogleLogging();
+    	if (g_server) {
+    		delete g_server;
+    		g_server = nullptr;
+    	}
+
+        LOG(INFO) << "资源清理完成，程序退出";
+        exit(0);
+    }
+}
 
 int main(int argc, char* argv[])
 {
@@ -37,15 +66,22 @@ int main(int argc, char* argv[])
 
 	FLAGS_stop_logging_if_full_disk = true;  //设置是否在磁盘已满时避免日志记录到磁盘
 
+	// 注册信号处理器
+	signal(SIGINT, signalHandler);
+
 	unsigned short port = atoi(argv[1]);
 
 	TcpServer* server = new TcpServer(port, 8);
+	g_server = server;  // 保存到全局变量
 	server->run();
 
-	// MyTest* test = new MyTest();
-	// test->test();
+	// 这些代码在正常情况下不会执行到，但保留以防万一
+	// 清理 OpenSSL 资源
+	ERR_free_strings();
+	EVP_cleanup();
+	CRYPTO_cleanup_all_ex_data();
 
-	google::ShutdownGoogleLogging();//当要结束glog时必须关闭库，否则会内存溢出
+	google::ShutdownGoogleLogging();
 
 	return 0;
 }

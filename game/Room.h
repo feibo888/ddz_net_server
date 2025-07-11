@@ -48,6 +48,7 @@ public:
 
       // 改进：更安全的分布式锁方法
       bool acquireLock(const std::string& lockKey, int expireSeconds = 10);
+      bool acquireLockWithRetry(const std::string& lockKey, int expireSeconds, int maxRetries = 3);
       void releaseLock(const std::string& lockKey);
       // 新增：生成唯一标识符
       std::string generateLockValue();

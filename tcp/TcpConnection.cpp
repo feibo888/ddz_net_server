@@ -118,8 +118,8 @@ void TcpConnection::addWriteTask(string data)
 
 void TcpConnection::addDeleteTask()
 {
-	m_evLoop->addTask(m_channel, ElemType::DELETE);
 	LOG(INFO) << "和客户端断开连接: " << m_name;
+	m_evLoop->addTask(m_channel, ElemType::DELETE);
 }
 
 void TcpConnection::prepareSecretKey()
