@@ -43,6 +43,8 @@ public:
     void handleGameOver(Message* reqMsg);
     //处理搜索房间
     void handleSearchRoom(Message* reqMsg, Message& resMsg);
+    //处理重新发牌
+    void handleReDealCards(Message* reqMsg, Message& resMsg);
     //准备开始游戏
     void readyForPlay(std::string roomName, std::string data);
     //发牌
@@ -68,9 +70,7 @@ private:
     AesCrypto* m_aes = nullptr;
     MysqlConn* m_mysql = nullptr;
     Room* m_redis = nullptr;
-    std::multimap<int, int> m_cards;
-
-
+    std::vector<std::pair<int, int>> m_cards;  // 改为vector以支持洗牌
 };
 
 

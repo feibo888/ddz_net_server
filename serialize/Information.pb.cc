@@ -71,21 +71,22 @@ const char descriptor_table_protodef_Information_2eproto[] PROTOBUF_SECTION_VARI
   "sername\030\001 \001(\t\022\020\n\010roomname\030\002 \001(\t\022\r\n\005data1"
   "\030\003 \001(\t\022\r\n\005data2\030\004 \001(\t\022\r\n\005data3\030\005 \001(\t\022\035\n\007"
   "reqCode\030\006 \001(\0162\014.RequestCode\022\036\n\007resCode\030\007"
-  " \001(\0162\r.ResponseCode*\273\001\n\013RequestCode\022\r\n\tU"
+  " \001(\0162\r.ResponseCode*\314\001\n\013RequestCode\022\r\n\tU"
   "serLogin\020\000\022\014\n\010Register\020\001\022\014\n\010AesFenFa\020\002\022\014"
   "\n\010AutoRoom\020\003\022\016\n\nManualRoom\020\004\022\016\n\nSearchRo"
   "om\020\005\022\014\n\010GrabLord\020\006\022\r\n\tPlayAHand\020\007\022\014\n\010Gam"
   "eOver\020\010\022\014\n\010Continue\020\t\022\r\n\tLeaveRoom\020\n\022\013\n\007"
-  "GoodBye\020\013*\320\001\n\014ResponseCode\022\013\n\007LoginOk\020\000\022"
-  "\016\n\nRegisterOk\020\001\022\014\n\010RsaFenFa\020\002\022\017\n\013AesVeri"
-  "fyOk\020\003\022\016\n\nJoinRoomOK\020\004\022\r\n\tStartGame\020\005\022\020\n"
-  "\014SearchRoomOK\020\006\022\r\n\tDealCards\020\007\022\021\n\rOtherG"
-  "rabLord\020\010\022\021\n\rOtherPlayHand\020\t\022\022\n\016OtherLea"
-  "veRoom\020\n\022\n\n\006Failed\020\013b\006proto3"
+  "GoodBye\020\013\022\017\n\013ReDealCards\020\014*\320\001\n\014ResponseC"
+  "ode\022\013\n\007LoginOk\020\000\022\016\n\nRegisterOk\020\001\022\014\n\010RsaF"
+  "enFa\020\002\022\017\n\013AesVerifyOk\020\003\022\016\n\nJoinRoomOK\020\004\022"
+  "\r\n\tStartGame\020\005\022\020\n\014SearchRoomOK\020\006\022\r\n\tDeal"
+  "Cards\020\007\022\021\n\rOtherGrabLord\020\010\022\021\n\rOtherPlayH"
+  "and\020\t\022\022\n\016OtherLeaveRoom\020\n\022\n\n\006Failed\020\013b\006p"
+  "roto3"
   ;
 static ::_pbi::once_flag descriptor_table_Information_2eproto_once;
 const ::_pbi::DescriptorTable descriptor_table_Information_2eproto = {
-    false, false, 588, descriptor_table_protodef_Information_2eproto,
+    false, false, 605, descriptor_table_protodef_Information_2eproto,
     "Information.proto",
     &descriptor_table_Information_2eproto_once, nullptr, 0, 1,
     schemas, file_default_instances, TableStruct_Information_2eproto::offsets,
@@ -116,6 +117,7 @@ bool RequestCode_IsValid(int value) {
     case 9:
     case 10:
     case 11:
+    case 12:
       return true;
     default:
       return false;

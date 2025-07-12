@@ -14,6 +14,7 @@ enum RequestCode
     Continue = 9;
     LeaveRoom = 10;
     GoodBye = 11;
+    ReDealCards = 12;
 }
 
 enum ResponseCode

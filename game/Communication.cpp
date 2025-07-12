@@ -8,6 +8,9 @@
 #include <netinet/in.h>
 #include <memory>
 #include <glog/logging.h>
+#include <algorithm>
+#include <random>
+#include <chrono>
 
 #include "JsonParse.h"
 #include "RoomList.h"
@@ -117,6 +120,9 @@ void Communication::parseRequest(Buffer* buf)
             handleGoodBye(msg.get());
             realFunc = nullptr;
             break;
+        case RequestCode::ReDealCards:
+            handleReDealCards(msg.get(), resMsg);
+            realFunc = nullptr;
         default:
             break;
     }
@@ -511,6 +517,7 @@ void Communication::handleGameOver(Message *reqMsg)
     int score = std::stoi(reqMsg->data1);
     // redis
     m_redis->UpdatePlayerScore(reqMsg->roomName, reqMsg->userName, score);
+    cout << "更新玩家分数: " << reqMsg->userName << " 分数: " << score << endl;
     // mysql 参数化更新分数
     std::string sql = "update information set score = ? where name = ?";
     if (m_mysql->prepare(sql)) {
@@ -533,6 +540,27 @@ void Communication::handleSearchRoom(Message *reqMsg, Message &resMsg)
     bool flag = m_redis->searchRoom(reqMsg->roomName);
     resMsg.resCode = ResponseCode::SearchRoomOK;
     resMsg.data1 = flag ? "true" : "false";
+}
+
+void Communication::handleReDealCards(Message *reqMsg, Message &resMsg)
+{
+    auto players = RoomList::getInstance()->getPlayers(reqMsg->roomName);
+
+    //发牌数据
+    dealCards(players);
+    //通知客户端可以开始游戏了
+    Message msg;
+    msg.resCode = ResponseCode::StartGame;
+    // data1 : userName-次序-分数
+    msg.data1 = m_redis->getPlayerOrder(reqMsg->roomName);
+
+    cout << "Starting game: " << msg.data1 << endl;
+    Codec codec(&msg);
+
+    for (const auto& it : players)
+    {
+        it.second(codec.enCodeMsg());
+    }
 }
 
 
@@ -593,29 +621,31 @@ void Communication::initCards()
         //点数
         for (int j = 1; j <= 13; ++j)
         {
-            m_cards.insert(make_pair(i, j));
+            m_cards.push_back(make_pair(i, j));  // 改为push_back
         }
     }
-    m_cards.insert(make_pair(0, 14));
-    m_cards.insert(make_pair(0, 15));
+    m_cards.push_back(make_pair(0, 14));  // 大王
+    m_cards.push_back(make_pair(0, 15));  // 小王
+
+    // 真正的洗牌：使用std::shuffle打乱牌的顺序
+    // 使用高精度时间作为随机种子，确保每次洗牌结果不同
+    auto seed = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+    std::mt19937 gen(seed);
+    std::shuffle(m_cards.begin(), m_cards.end(), gen);
+
+    cout << "洗牌完成，牌库大小: " << m_cards.size() << endl;
 }
 
 std::pair<int, int> Communication::takeOneCard()
 {
-    //创建随机设备对象
-    std::random_device rd;
-    //创建随机数生成对象
-    std::mt19937 gen(rd());
-    //创建随机数分布对象， 均匀分布
-    std::uniform_int_distribution<int> distrib(0, m_cards.size() - 1);
-    int randNum = distrib(gen);
+    // 由于已经在initCards()中进行了洗牌，直接从牌库末尾取牌即可
+    if (m_cards.empty()) {
+        cout << "错误：牌库为空，无法取牌！" << endl;
+        return make_pair(-1, -1);  // 返回无效牌表示错误
+    }
 
-    auto it = m_cards.begin();
-    for (int i = 0; i < randNum; ++i, ++it);
-
-    // 先保存要返回的值，再删除元素
-    auto card = *it;
-    m_cards.erase(it);
+    auto card = m_cards.back();  // 取最后一张牌
+    m_cards.pop_back();          // 移除最后一张牌
 
     return card;
 }
