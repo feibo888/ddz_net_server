@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <random>
 #include <chrono>
+#include <thread>
 
 #include "JsonParse.h"
 #include "RoomList.h"
@@ -413,35 +414,52 @@ void Communication::handleAddRoom(Message *reqMsg, Message &resMsg)
         //第一次加载分数，在redis中更新分数，最后将分数同步到mysql
         if (score == 0)
         {
-            // 参数化查询mysql, 并将其存储到redis中
-            // //查询mysql, 并将其存储到redis中
-            // std::string sql = "select score from information where name = '" + reqMsg->userName + "';";
+            // 使用分布式锁确保分数加载的原子性
+            std::string scoreLockKey = "score_load_" + reqMsg->userName;
+            bool lockAcquired = m_redis->acquireLockWithRetry(scoreLockKey, 5, 3);
+            
+            if (lockAcquired) {
+                try {
+                    // 参数化查询mysql, 并将其存储到redis中
+                    std::string sql = "select score from information where name = ?";
+                    if (m_mysql->prepare(sql)) {
+                        std::string name = reqMsg->userName;
+                        MYSQL_BIND bind[1] = {0};
+                        bind[0].buffer_type = MYSQL_TYPE_STRING;
+                        bind[0].buffer = (void*)name.c_str();
+                        bind[0].buffer_length = name.size();
 
-            // bool flag1 = m_mysql->query(sql);
-            // assert(flag1);
-            // m_mysql->next();
-            // score = std::stoi(m_mysql->value(0));
-
-            std::string sql = "select score from information where name = ?";
-            if (m_mysql->prepare(sql)) {
-
-                std::string name = reqMsg->userName;
-                MYSQL_BIND bind[1] = {0};
-                bind[0].buffer_type = MYSQL_TYPE_STRING;
-                bind[0].buffer = (void*)name.c_str();
-                bind[0].buffer_length = name.size();
-
-                if (m_mysql->bindParam(bind) && m_mysql->execute() && m_mysql->storeResult()) {
-                    
-                    int scoreResult = 0;
-                    if (m_mysql->fetchInt(scoreResult)) {
-                        score = scoreResult;
+                        if (m_mysql->bindParam(bind) && m_mysql->execute() && m_mysql->storeResult()) {
+                            int scoreResult = 0;
+                            if (m_mysql->fetchInt(scoreResult)) {
+                                score = scoreResult;
+                                LOG(INFO) << "Loaded score from MySQL: " << name << " score: " << score;
+                            }
+                        }
+                        m_mysql->closeStmt();
                     }
+                } catch (const std::exception& e) {
+                    cout << "加载玩家分数时发生错误: " << e.what() << endl;
+                    LOG(ERROR) << "Error loading player score: " << e.what();
+                    // 使用默认分数0
+                    score = 0;
                 }
-                m_mysql->closeStmt();
+                
+                m_redis->releaseLock(scoreLockKey);
+            } else {
+                cout << "获取分数加载锁失败，使用默认分数: " << reqMsg->userName << endl;
+                score = 0;
             }
         }
-        m_redis->UpdatePlayerScore(roomName, reqMsg->userName, score);
+        
+        // 原子性地更新Redis中的分数
+        try {
+            m_redis->UpdatePlayerScore(roomName, reqMsg->userName, score);
+        } catch (const std::exception& e) {
+            cout << "更新Redis分数失败: " << e.what() << endl;
+            LOG(ERROR) << "Failed to update Redis score: " << e.what();
+            // 可以考虑重试或使用MySQL作为备用
+        }
 
         //将房间和玩家的关系保存到单例对象中
         RoomList* roomList = RoomList::getInstance();
@@ -506,33 +524,75 @@ void Communication::handleGoodBye(Message *reqMsg)
 
 void Communication::handleGameOver(Message *reqMsg)
 {
-    // int score = std::stoi(reqMsg->data1);
-    // //redis
-    // m_redis->UpdatePlayerScore(reqMsg->roomName, reqMsg->userName, score);
-    // //mysql
-    // char sql[1024];
-    // sprintf(sql, "update information set score = %d where name = '%s';", score, reqMsg->userName.data());
-    // m_mysql->update(sql);
-
     int score = std::stoi(reqMsg->data1);
-    // redis
-    m_redis->UpdatePlayerScore(reqMsg->roomName, reqMsg->userName, score);
-    cout << "更新玩家分数: " << reqMsg->userName << " 分数: " << score << endl;
-    // mysql 参数化更新分数
-    std::string sql = "update information set score = ? where name = ?";
-    if (m_mysql->prepare(sql)) {
-        std::string name = reqMsg->userName;
-        MYSQL_BIND bind[2] = {0};
-        bind[0].buffer_type = MYSQL_TYPE_LONG;
-        bind[0].buffer = &score;
-        bind[0].is_unsigned = 0;
-        bind[1].buffer_type = MYSQL_TYPE_STRING;
-        bind[1].buffer = (void*)name.c_str();
-        bind[1].buffer_length = name.size();
-        m_mysql->bindParam(bind);
-        m_mysql->execute();
-        m_mysql->closeStmt();
+    std::string userName = reqMsg->userName;
+    std::string roomName = reqMsg->roomName;
+    
+    cout << "开始更新玩家分数: " << userName << " 分数: " << score << endl;
+    
+    // 使用分布式锁确保更新操作的原子性
+    std::string lockKey = "score_update_" + userName;
+    bool lockAcquired = m_redis->acquireLockWithRetry(lockKey, 10, 3);
+    
+    if (!lockAcquired) {
+        cout << "获取分数更新锁失败: " << userName << endl;
+        return;
     }
+    
+    try {
+        // 开启MySQL事务
+        m_mysql->transaction();
+        
+        // 1. 先更新MySQL（作为权威数据源）
+        std::string sql = "update information set score = ? where name = ?";
+        bool mysqlSuccess = false;
+        
+        if (m_mysql->prepare(sql)) {
+            MYSQL_BIND bind[2] = {0};
+            bind[0].buffer_type = MYSQL_TYPE_LONG;
+            bind[0].buffer = &score;
+            bind[0].is_unsigned = 0;
+            bind[1].buffer_type = MYSQL_TYPE_STRING;
+            bind[1].buffer = (void*)userName.c_str();
+            bind[1].buffer_length = userName.size();
+            
+            mysqlSuccess = m_mysql->bindParam(bind) && m_mysql->execute();
+            m_mysql->closeStmt();
+        }
+        
+        if (mysqlSuccess) {
+            // 2. MySQL更新成功，提交事务
+            m_mysql->commit();
+            
+            // 3. 更新Redis缓存
+            try {
+                m_redis->UpdatePlayerScore(roomName, userName, score);
+                cout << "分数更新成功: " << userName << " 新分数: " << score << endl;
+                LOG(INFO) << "Score updated successfully: " << userName << " score: " << score;
+            } catch (const std::exception& e) {
+                // Redis更新失败，记录错误但不回滚MySQL（最终一致性）
+                cout << "Redis分数更新失败: " << userName << " 错误: " << e.what() << endl;
+                LOG(ERROR) << "Redis score update failed: " << userName << " error: " << e.what();
+                
+                // 可以考虑加入重试队列或者异步修复机制
+                scheduleRedisScoreSync(roomName, userName, score);
+            }
+        } else {
+            // MySQL更新失败，回滚事务
+            m_mysql->rollback();
+            cout << "MySQL分数更新失败，事务已回滚: " << userName << endl;
+            LOG(ERROR) << "MySQL score update failed, transaction rolled back: " << userName;
+        }
+        
+    } catch (const std::exception& e) {
+        // 发生异常，回滚MySQL事务
+        m_mysql->rollback();
+        cout << "分数更新过程中发生异常: " << e.what() << endl;
+        LOG(ERROR) << "Exception during score update: " << e.what();
+    }
+    
+    // 释放分布式锁
+    m_redis->releaseLock(lockKey);
 }
 
 void Communication::handleSearchRoom(Message *reqMsg, Message &resMsg)
@@ -796,3 +856,61 @@ void Communication::startGame(std::string roomName, userMap players)
 //         cout << "同步房间状态到Redis时出错: " << e.what() << endl;
 //     }
 // }
+
+// 私有方法：异步修复Redis分数数据
+void Communication::scheduleRedisScoreSync(const std::string& roomName, const std::string& userName, int score)
+{
+    // 简单的重试机制，实际项目中可以使用消息队列
+    std::thread([this, roomName, userName, score]() {
+        std::this_thread::sleep_for(std::chrono::seconds(5)); // 等待5秒后重试
+        
+        try {
+            m_redis->UpdatePlayerScore(roomName, userName, score);
+            LOG(INFO) << "Redis score sync repair successful: " << userName << " score: " << score;
+        } catch (const std::exception& e) {
+            LOG(ERROR) << "Redis score sync repair failed: " << userName << " error: " << e.what();
+            // 可以考虑写入错误队列或者继续重试
+        }
+    }).detach();
+}
+
+// 数据一致性检查方法
+bool Communication::verifyScoreConsistency(const std::string& userName)
+{
+    try {
+        // 从MySQL获取权威分数
+        int mysqlScore = 0;
+        std::string sql = "select score from information where name = ?";
+        if (m_mysql->prepare(sql)) {
+            MYSQL_BIND bind[1] = {0};
+            bind[0].buffer_type = MYSQL_TYPE_STRING;
+            bind[0].buffer = (void*)userName.c_str();
+            bind[0].buffer_length = userName.size();
+
+            if (m_mysql->bindParam(bind) && m_mysql->execute() && m_mysql->storeResult()) {
+                m_mysql->fetchInt(mysqlScore);
+            }
+            m_mysql->closeStmt();
+        }
+        
+        // 从Redis获取缓存分数
+        std::string currentRoom = m_redis->whereAmI(userName);
+        if (!currentRoom.empty()) {
+            int redisScore = m_redis->getPlayerScore(currentRoom, userName);
+            
+            if (mysqlScore != redisScore) {
+                LOG(WARNING) << "Score inconsistency detected: " << userName 
+                           << " MySQL: " << mysqlScore << " Redis: " << redisScore;
+                
+                // 修复不一致，以MySQL为准
+                m_redis->UpdatePlayerScore(currentRoom, userName, mysqlScore);
+                return false;
+            }
+        }
+        
+        return true;
+    } catch (const std::exception& e) {
+        LOG(ERROR) << "Error verifying score consistency: " << e.what();
+        return false;
+    }
+}

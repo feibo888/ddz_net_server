@@ -61,6 +61,10 @@ public:
     void startGame(std::string roomName, userMap players);
     //同步房间状态到Redis
     //void syncRoomStateToRedis(std::string roomName, userMap players);
+    
+    // 数据一致性检查和修复方法
+    void scheduleRedisScoreSync(const std::string& roomName, const std::string& userName, int score);
+    bool verifyScoreConsistency(const std::string& userName);
 
 
 

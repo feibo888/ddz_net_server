@@ -3,3 +3,5 @@ cmake-build-simple_http_debug/
 build/
 resources/
 .idea/
+scripts/
+docs/
