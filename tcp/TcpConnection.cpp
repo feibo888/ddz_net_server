@@ -90,6 +90,13 @@ TcpConnection::TcpConnection(int fd, EventLoop* evLoop)
 
 TcpConnection::~TcpConnection()
 {
+	// 【修复】无条件清理Communication对象
+	if (m_reply) {
+		delete m_reply;
+		m_reply = nullptr;
+	}
+
+	// 原有的条件性清理逻辑
 	if (m_readBuf && m_readBuf->readableSize() == 0 &&
 		m_writeBuf && m_writeBuf->readableSize() == 0)
 	{
@@ -97,6 +104,29 @@ TcpConnection::~TcpConnection()
 		delete m_writeBuf;
 		m_evLoop->destoryChannel(m_channel);
 	}
+	else
+	{
+		// 【新增】即使缓冲区不为空也要清理基本资源
+		if (m_readBuf) {
+			delete m_readBuf;
+			m_readBuf = nullptr;
+		}
+		if (m_writeBuf) {
+			delete m_writeBuf;
+			m_writeBuf = nullptr;
+		}
+		if (m_channel) {
+			m_evLoop->destoryChannel(m_channel);
+		}
+	}
+
+	// if (m_readBuf && m_readBuf->readableSize() == 0 &&
+	// 	m_writeBuf && m_writeBuf->readableSize() == 0)
+	// {
+	// 	delete m_readBuf;
+	// 	delete m_writeBuf;
+	// 	m_evLoop->destoryChannel(m_channel);
+	// }
 }
 
 void TcpConnection::addWriteTask(string data)

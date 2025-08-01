@@ -66,6 +66,26 @@ public:
       void sadd(const std::string& key, const std::string& member) { m_redis->sadd(key, member); }
       void del(const std::string& key) { m_redis->del(key); }
       void hset(const std::string& key, const std::string& field, const std::string& value) { m_redis->hset(key, field, value); }
+      std::string hget(const std::string& key, const std::string& field);
+
+      // 游戏状态管理方法
+      void setGameState(const std::string& roomName, const std::string& field, const std::string& value);
+      std::string getGameState(const std::string& roomName, const std::string& field);
+
+      // 手牌管理方法
+      void setPlayerCards(const std::string& roomName, const std::string& userName, const std::string& cards);
+      std::string getPlayerCards(const std::string& roomName, const std::string& userName);
+      void addCardsToPlayer(const std::string& roomName, const std::string& userName, const std::string& newCards);
+      void removeCardFromPlayer(const std::string& roomName, const std::string& userName, const std::string& card);
+      void clearRoomCards(const std::string& roomName);
+
+      // 底牌管理
+      void setBottomCards(const std::string& roomName, const std::string& cards);
+      std::string getBottomCards(const std::string& roomName);
+
+      // **新增：固定游戏顺序管理**
+      void setGamePlayerOrder(const std::string& roomName, const std::string& orderData);
+      std::string getGamePlayerOrder(const std::string& roomName);
 
 private:
       sw::redis::Redis* m_redis;

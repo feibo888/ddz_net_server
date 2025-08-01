@@ -71,6 +71,8 @@ int main(int argc, char* argv[])
 
 	unsigned short port = atoi(argv[1]);
 
+	DisconnectManager::getInstance()->initRedisConnection();
+
 	TcpServer* server = new TcpServer(port, 8);
 	g_server = server;  // 保存到全局变量
 	server->run();

@@ -5,9 +5,5 @@ set(CMAKE_CXX_STANDARD 17)
 
 #取出当前目录中所有的源文件，存储到一个变量中
 aux_source_directory(./ SRC)
-add_library(game STATIC ${SRC}
-        Room.cpp
-        Room.h
-        RoomList.cpp
-        RoomList.h)
+add_library(game STATIC ${SRC})
 target_link_libraries(game mycrypto hiredis redis++)

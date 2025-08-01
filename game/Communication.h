@@ -12,6 +12,8 @@
 #include "MysqlConn.h"
 #include "Room.h"
 #include "RoomList.h"
+#include "DisconnectManager.h"
+#include <arpa/inet.h>
 
 
 class Communication {
@@ -66,7 +68,11 @@ public:
     void scheduleRedisScoreSync(const std::string& roomName, const std::string& userName, int score);
     bool verifyScoreConsistency(const std::string& userName);
 
-
+    // 新增：辅助方法
+    std::vector<std::string> parsePlayerOrder(const std::string& orderData);
+    bool isLordConfirmed(const std::string& grabData);
+    void updatePlayerHandAfterPlay(const std::string& roomName, const std::string& userName, const std::string& playedCards);
+    std::string getNextPlayer(const std::string& roomName, const std::string& currentPlayer);
 
 private:
     sendCallback m_sendCallback;
@@ -75,6 +81,29 @@ private:
     MysqlConn* m_mysql = nullptr;
     Room* m_redis = nullptr;
     std::vector<std::pair<int, int>> m_cards;  // 改为vector以支持洗牌
+
+    // 新增：用于断线检测的当前用户信息
+    std::string m_currentRoomName;
+    std::string m_currentUserName;
+
+    struct PendingDisconnectCheck {
+        std::string roomName;
+        std::string nextPlayer;
+
+        PendingDisconnectCheck() = default;
+        PendingDisconnectCheck(const std::string& room, const std::string& player)
+            : roomName(room), nextPlayer(player) {}
+
+        void clear() {
+            roomName.clear();
+            nextPlayer.clear();
+        }
+
+        bool isEmpty() const {
+            return roomName.empty() && nextPlayer.empty();
+        }
+    } m_pendingDisconnectCheck;
+
 };
 
 

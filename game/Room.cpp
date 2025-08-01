@@ -481,3 +481,83 @@ bool Room::acquireLockWithRetry(const std::string& lockKey, int expireSeconds, i
 
     return false;
 }
+
+
+void Room::setPlayerCards(const std::string& roomName, const std::string& userName, const std::string& cards) {
+    m_redis->hset(roomName + "_cards", userName, cards);
+}
+
+std::string Room::getPlayerCards(const std::string& roomName, const std::string& userName) {
+    return hget(roomName + "_cards", userName);
+}
+
+void Room::addCardsToPlayer(const std::string& roomName, const std::string& userName, const std::string& newCards) {
+    std::string currentCards = getPlayerCards(roomName, userName);
+    if (!currentCards.empty() && !newCards.empty()) {
+        currentCards += newCards;  // newCards应该已经包含#分隔符
+    } else {
+        currentCards = newCards;
+    }
+    setPlayerCards(roomName, userName, currentCards);
+}
+
+void Room::removeCardFromPlayer(const std::string& roomName, const std::string& userName, const std::string& card) {
+    std::string currentCards = getPlayerCards(roomName, userName);
+    if (currentCards.empty()) return;
+
+    // 移除指定的牌（格式：suit-rank#）
+    std::string cardToRemove = card;
+    if (cardToRemove.back() != '#') {
+        cardToRemove += "#";
+    }
+
+    size_t pos = currentCards.find(cardToRemove);
+    if (pos != std::string::npos) {
+        currentCards.erase(pos, cardToRemove.length());
+        setPlayerCards(roomName, userName, currentCards);
+    }
+}
+
+void Room::clearRoomCards(const std::string& roomName) {
+    // 删除整个房间的手牌数据
+    m_redis->del(roomName + "_cards");
+    m_redis->del(roomName + "_bottom");
+    m_redis->del(roomName + "_state");
+    // **新增：清理固定游戏顺序数据**
+    m_redis->del(roomName + "_game_order");
+}
+
+void Room::setBottomCards(const std::string& roomName, const std::string& cards) {
+    m_redis->hset(roomName + "_bottom", "cards", cards);
+}
+
+std::string Room::getBottomCards(const std::string& roomName) {
+    return hget(roomName + "_bottom", "cards");
+}
+
+// 通用hget方法
+std::string Room::hget(const std::string& key, const std::string& field) {
+    auto value = m_redis->hget(key, field);
+    if (value.has_value()) {
+        return value.value();
+    }
+    return std::string();
+}
+
+// 游戏状态管理方法
+void Room::setGameState(const std::string& roomName, const std::string& field, const std::string& value) {
+    m_redis->hset(roomName + "_state", field, value);
+}
+
+std::string Room::getGameState(const std::string& roomName, const std::string& field) {
+    return hget(roomName + "_state", field);
+}
+
+void Room::setGamePlayerOrder(const std::string& roomName, const std::string& orderData) {
+    // 使用独立的键存储固定的游戏顺序，不会因为玩家断线而变化
+    m_redis->hset(roomName + "_game_order", "players", orderData);
+}
+
+std::string Room::getGamePlayerOrder(const std::string& roomName) {
+    return hget(roomName + "_game_order", "players");
+}
