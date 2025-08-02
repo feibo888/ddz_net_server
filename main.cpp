@@ -6,7 +6,7 @@
 #include <openssl/crypto.h>
 #include <openssl/err.h>
 #include <signal.h>
-
+#include "ConnectionManager.h"
 #include <glog/logging.h>
 
 // 全局变量，用于信号处理
@@ -72,6 +72,7 @@ int main(int argc, char* argv[])
 	unsigned short port = atoi(argv[1]);
 
 	DisconnectManager::getInstance()->initRedisConnection();
+	ConnectionManager::getInstance()->startHeartbeatChecker();
 
 	TcpServer* server = new TcpServer(port, 8);
 	g_server = server;  // 保存到全局变量
@@ -84,6 +85,7 @@ int main(int argc, char* argv[])
 	CRYPTO_cleanup_all_ex_data();
 
 	google::ShutdownGoogleLogging();
+	ConnectionManager::getInstance()->stopHeartbeatChecker();
 
 	return 0;
 }

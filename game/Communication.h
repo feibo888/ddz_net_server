@@ -14,6 +14,7 @@
 #include "RoomList.h"
 #include "DisconnectManager.h"
 #include <arpa/inet.h>
+#include "ConnectionManager.h"
 
 
 class Communication {
@@ -74,6 +75,10 @@ public:
     void updatePlayerHandAfterPlay(const std::string& roomName, const std::string& userName, const std::string& playedCards);
     std::string getNextPlayer(const std::string& roomName, const std::string& currentPlayer);
 
+    // 新增方法
+    void generateConnectionId();
+    void handleHeartbeat(Message* reqMsg, Message& resMsg);
+
 private:
     sendCallback m_sendCallback;
     deleteCallback m_deleteCallback;
@@ -85,6 +90,7 @@ private:
     // 新增：用于断线检测的当前用户信息
     std::string m_currentRoomName;
     std::string m_currentUserName;
+    std::string m_connectionId;  // 新增：连接唯一标识
 
     struct PendingDisconnectCheck {
         std::string roomName;

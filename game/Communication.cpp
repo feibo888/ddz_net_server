@@ -33,10 +33,15 @@ Communication::Communication()
 
     m_pendingDisconnectCheck.clear();
 
+    generateConnectionId();
+
 }
 
 Communication::~Communication()
 {
+    // 注销连接
+    ConnectionManager::getInstance()->unregisterConnection(m_connectionId);
+
     if (!m_currentRoomName.empty() && !m_currentUserName.empty()) {
         DisconnectManager::getInstance()->recordPlayerDisconnect(m_currentRoomName, m_currentUserName);
         std::cout << "玩家 " << m_currentUserName << " 从房间 " << m_currentRoomName << " 断线" << std::endl;
@@ -97,13 +102,17 @@ void Communication::parseRequest(Buffer* buf)
         }
     }
 
+    //cout << "收到请求码: " << msg->reqCode << ", 用户: " << msg->userName << endl;
+
     Message resMsg;
     switch (msg->reqCode)
     {
         case RequestCode::AesFenFa:
+            cout << "处理AES密钥分发" << endl;
             handleAesFenFa(msg.get(), resMsg);
             break;
         case RequestCode::UserLogin:
+            cout << "处理用户登录: " << msg->userName << endl;
             handleLogin(msg.get(), resMsg);
             break;
         case RequestCode::Register:
@@ -116,6 +125,9 @@ void Communication::parseRequest(Buffer* buf)
             break;
         case RequestCode::SearchRoom:
             handleSearchRoom(msg.get(), resMsg);
+            break;
+        case RequestCode::Heartbeat:
+            handleHeartbeat(msg.get(), resMsg);
             break;
         case RequestCode::GrabLord:
         {
@@ -172,18 +184,6 @@ void Communication::parseRequest(Buffer* buf)
                 m_redis->setGameState(msg->roomName, "current_turn", nextPlayer);
             }
 
-            //cout << "下个出牌选手：" << nextPlayer << endl;
-
-            // 检查下一个玩家是否断线
-            // DisconnectManager* disconnectMgr = DisconnectManager::getInstance();
-            // if (!nextPlayer.empty() && disconnectMgr->isDisconnectedPlayer(msg->roomName, nextPlayer)) {
-            //     // 触发断线玩家AI出牌
-            //     std::cout << "检测到下一个玩家 " << nextPlayer << " 已断线，触发AI托管" << std::endl;
-            //     disconnectMgr->checkAndHandleNextPlayer(msg->roomName, nextPlayer);
-            // } else if (nextPlayer.empty()) {
-            //     std::cout << "警告：无法确定下一个出牌玩家！" << std::endl;
-            // }
-
             if (!nextPlayer.empty()) {
                 DisconnectManager* disconnectMgr = DisconnectManager::getInstance();
                 if (disconnectMgr->isDisconnectedPlayer(msg->roomName, nextPlayer)) {
@@ -238,6 +238,7 @@ void Communication::parseRequest(Buffer* buf)
     {
         codec.reload(&resMsg);
         realFunc(codec.enCodeMsg());
+        //cout << "已回复请求: " << msg->reqCode << ", 响应码: " << resMsg.resCode << endl;
 
         if (!m_pendingDisconnectCheck.isEmpty()) {
             try {
@@ -318,13 +319,16 @@ void Communication::handleAesFenFa(Message* reqMsg, Message& resMsg)
     resMsg.resCode = ResponseCode::AesVerifyOk;
     if (reqMsg->data2 != res)
     {
-        cout << "AesFenFa failed" << endl;
+        cout << "AesFenFa failed: hash mismatch" << endl;
+        cout << "Expected: " << res << endl;
+        cout << "Got: " << reqMsg->data2 << endl;
         resMsg.resCode = ResponseCode::Failed;
         resMsg.data1 = "Aes密钥哈希校验失败...";
     }
     else
     {
         m_aes = new AesCrypto(AesCrypto::AES_CBC_256, aesKey);
+        cout << "AesFenFa success, 响应码: " << (int)resMsg.resCode << endl;
         LOG(INFO) << "AesFenFa success";
     }
 
@@ -332,44 +336,6 @@ void Communication::handleAesFenFa(Message* reqMsg, Message& resMsg)
 
 void Communication::handleRegister(Message *reqMsg, Message &resMsg)
 {
-    // //查询数据库中是否有该用户
-    // char sql[1024];
-    // sprintf(sql, "select name from user where name = '%s';", reqMsg->userName.data());
-
-    // bool flag = m_mysql->query(sql);
-
-    // if (flag && !m_mysql->next())           //查询操作成功但是没有数据
-    // {
-    //     //将注册信息写到数据库中
-    //     m_mysql->transaction();
-    //     sprintf(sql, "insert into user (name, passwd, phone, date) values('%s', '%s', '%s', now());",
-    //                                                                                     reqMsg->userName.data(),
-    //                                                                                     reqMsg->data1.data(),
-    //                                                                                     reqMsg->data2.data());
-    //     bool fl1 = m_mysql->update(sql);
-
-    //     sprintf(sql, "insert into information (name, score, status) values('%s', 0, 0);", reqMsg->userName.data());
-    //     bool fl2 = m_mysql->update(sql);
-
-    //     if (fl1 && fl2)
-    //     {
-    //         m_mysql->commit();
-    //         resMsg.resCode = ResponseCode::RegisterOk;
-    //     }
-    //     else
-    //     {
-    //         m_mysql->rollback();
-    //         resMsg.resCode = ResponseCode::Failed;
-    //         resMsg.data1 = "数据库插入数据失败";
-    //     }
-    // }
-    // else
-    // {
-    //     resMsg.resCode = ResponseCode::Failed;
-    //     resMsg.data1 = "用户名已存在，无法注册";
-    // }
-
-
     // 1. 查询数据库中是否有该用户
     std::string sql = "select name from user where name = ?";
     if (!m_mysql->prepare(sql)) {
@@ -460,31 +426,6 @@ void Communication::handleRegister(Message *reqMsg, Message &resMsg)
 
 void Communication::handleLogin(Message *reqMsg, Message &resMsg)
 {
-    // char sql[1024];
-    // sprintf(sql, "select name from user where name = '%s' and passwd = '%s' and (select count(*) from information where name = '%s' and status = 0);",
-    //                                                                         reqMsg->userName.data(), reqMsg->data1.data(), reqMsg->userName.data());
-
-
-    // bool flag = m_mysql->query(sql);
-
-    // if (flag && m_mysql->next())
-    // {
-    //     m_mysql->transaction();
-    //     sprintf(sql, "update information set status = 1 where name = '%s';", reqMsg->userName.data());
-    //     bool flag1 = m_mysql->update(sql);
-
-    //     if (flag1)
-    //     {
-    //         m_mysql->commit();
-    //         resMsg.resCode = ResponseCode::LoginOk;
-    //         return;
-    //     }
-    //     m_mysql->rollback();
-    // }
-    // resMsg.resCode = ResponseCode::Failed;
-    // resMsg.data1 = "用户名或密码错误，或者当前玩家已经成功登录...";
-
-
 
     // 参数化查询：查找用户
     std::string sql = "select name from user where name = ? and passwd = ? and "
@@ -538,6 +479,8 @@ void Communication::handleLogin(Message *reqMsg, Message &resMsg)
         if (flag1) {
             m_mysql->commit();
             resMsg.resCode = ResponseCode::LoginOk;
+            m_currentUserName = reqMsg->userName;
+            ConnectionManager::getInstance()->registerConnection(m_connectionId, reqMsg->userName, "", this);
             LOG(INFO) << "user login success: " << reqMsg->userName;
             return;
         }
@@ -637,6 +580,10 @@ void Communication::handleAddRoom(Message *reqMsg, Message &resMsg)
         resMsg.data1 = to_string(m_redis->getPlayerCount(roomName));
         resMsg.roomName = roomName;
         m_currentRoomName = roomName;
+
+        // 更新连接管理器中的房间信息
+        ConnectionManager::getInstance()->unregisterConnection(m_connectionId);
+        ConnectionManager::getInstance()->registerConnection(m_connectionId, m_currentUserName, m_currentRoomName, this);
 
         LOG(INFO) << "玩家: " << reqMsg->userName << "进入房间: " << roomName;
     }
@@ -1281,3 +1228,28 @@ std::string Communication::getNextPlayer(const std::string& roomName, const std:
     return orderedPlayers[0]; // 默认返回第一个
 }
 
+void Communication::generateConnectionId() {
+    // 生成唯一连接ID
+    auto now = std::chrono::high_resolution_clock::now();
+    auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+    m_connectionId = "conn_" + std::to_string(timestamp) + "_" + std::to_string(rand() % 1000);
+}
+
+void Communication::handleHeartbeat(Message* reqMsg, Message& resMsg) {
+    try {
+        // 更新心跳时间
+        ConnectionManager::getInstance()->updateHeartbeat(m_connectionId);
+
+        // 设置心跳响应
+        resMsg.resCode = ResponseCode::HeartbeatReply;
+        resMsg.userName = reqMsg->userName;
+        resMsg.roomName = reqMsg->roomName;
+        resMsg.data1 = "pong";
+
+        // 可选：日志记录（调试用）
+        // std::cout << "心跳响应已设置：" << reqMsg->userName << std::endl;
+
+    } catch (const std::exception& e) {
+        std::cout << "处理心跳时异常：" << e.what() << std::endl;
+    }
+}
