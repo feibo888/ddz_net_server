@@ -137,6 +137,8 @@ void Communication::parseRequest(Buffer* buf)
 
             // 检查是否确定了地主
             if (isLordConfirmed(msg->data1)) {
+                // 地主开始出牌，设置超时
+                TurnTimeoutManager::getInstance()->startPlayerTurn(msg->roomName, msg->userName, 30);
                 // 将底牌加入地主手牌
                 if (m_redis) {
                     std::string bottomCards = m_redis->getBottomCards(msg->roomName);
@@ -158,6 +160,9 @@ void Communication::parseRequest(Buffer* buf)
         }
         case RequestCode::PlayAHand:
         {
+            // 先取消当前玩家的超时检测
+            TurnTimeoutManager::getInstance()->finishPlayerTurn(msg->roomName, msg->userName);
+
             // 更新游戏状态：记录当前出牌玩家
             if (m_redis) {
                 m_redis->setGameState(msg->roomName, "current_turn", msg->userName);
@@ -193,6 +198,8 @@ void Communication::parseRequest(Buffer* buf)
                 } else {
                     std::cout << "下一个玩家 " << nextPlayer << " 在线，无需AI托管" << std::endl;
                     m_pendingDisconnectCheck.clear();
+                    // 在线玩家设置出牌超时
+                    TurnTimeoutManager::getInstance()->startPlayerTurn(msg->roomName, nextPlayer, 30);
                 }
             } else {
                 std::cout << "警告：无法确定下一个出牌玩家！" << std::endl;
@@ -212,6 +219,8 @@ void Communication::parseRequest(Buffer* buf)
             }
             // 清理断线记录
             DisconnectManager::getInstance()->cleanupGame(msg->roomName);
+            // 清理该房间所有超时检测
+            TurnTimeoutManager::getInstance()->clearRoomTimeouts(msg->roomName);
 
             realFunc = nullptr;
             break;
@@ -222,6 +231,7 @@ void Communication::parseRequest(Buffer* buf)
             break;
         case RequestCode::LeaveRoom:
             handleLeaveRoom(msg.get(), resMsg);
+            //TurnTimeoutManager::getInstance()->finishPlayerTurn(msg->roomName, msg->userName);
             realFunc = nullptr;
             break;
         case RequestCode::GoodBye:

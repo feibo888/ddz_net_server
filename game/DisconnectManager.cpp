@@ -108,11 +108,15 @@ void DisconnectManager::executeAIPlay(const std::string& roomName, const std::st
             // 从Redis中移除这张牌
             m_redis->removeCardFromPlayer(roomName, userName, playData);
 
+            // **关键修复：AI出牌后更新游戏控制权**
+            m_redis->setGameState(roomName, "game_controller", userName);
+
             std::cout << "AI代替断线玩家 " << userName << " 出牌（第一手）：" << playData << std::endl;
         } else {
             // 跟牌：直接过牌
             playData = "";
             std::cout << "AI代替断线玩家 " << userName << " 过牌" << std::endl;
+            // 过牌时不改变game_controller
         }
 
         // 发送AI出牌消息
@@ -261,8 +265,22 @@ bool DisconnectManager::isFirstHand(const std::string& roomName, const std::stri
     // 检查当前控制权玩家
     std::string controller = m_redis->getGameState(roomName, "game_controller");
 
-    // 没有控制权玩家 OR 控制权玩家就是当前玩家 = 先手出牌
-    return controller.empty() || controller == userName;
+    // 修正逻辑：
+    // 1. 没有控制权玩家（游戏开始时） = 先手出牌
+    // 2. 控制权玩家就是当前玩家 = 先手出牌  
+    // 3. 控制权玩家是其他人 = 跟牌
+    if (controller.empty()) 
+    {
+        return true;
+    } 
+    else if (controller == userName) 
+    {
+        return true;
+    } 
+    else 
+    {
+        return false;
+    }
 }
 
 std::string DisconnectManager::formatCard(const std::pair<int, int>& card) {

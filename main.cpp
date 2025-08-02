@@ -7,6 +7,7 @@
 #include <openssl/err.h>
 #include <signal.h>
 #include "ConnectionManager.h"
+#include "TurnTimeoutManager.h"
 #include <glog/logging.h>
 
 // 全局变量，用于信号处理
@@ -16,6 +17,10 @@ TcpServer* g_server = nullptr;
 void signalHandler(int signal) {
     if (signal == SIGINT) {
         LOG(INFO) << "收到 SIGINT 信号，开始清理资源...";
+
+        // 停止所有管理器
+        TurnTimeoutManager::getInstance()->stopTimeoutChecker();
+        ConnectionManager::getInstance()->stopHeartbeatChecker();
 
     	// 更彻底的 OpenSSL 清理（适用于 OpenSSL 3.x）
     	OPENSSL_thread_stop();  // 清理线程局部存储
@@ -73,19 +78,24 @@ int main(int argc, char* argv[])
 
 	DisconnectManager::getInstance()->initRedisConnection();
 	ConnectionManager::getInstance()->startHeartbeatChecker();
+	
+	// 启动出牌超时检测器
+	TurnTimeoutManager::getInstance()->startTimeoutChecker();
 
 	TcpServer* server = new TcpServer(port, 8);
 	g_server = server;  // 保存到全局变量
 	server->run();
 
 	// 这些代码在正常情况下不会执行到，但保留以防万一
+	// 清理资源
+	TurnTimeoutManager::getInstance()->stopTimeoutChecker();
+	ConnectionManager::getInstance()->stopHeartbeatChecker();
 	// 清理 OpenSSL 资源
 	ERR_free_strings();
 	EVP_cleanup();
 	CRYPTO_cleanup_all_ex_data();
 
 	google::ShutdownGoogleLogging();
-	ConnectionManager::getInstance()->stopHeartbeatChecker();
 
 	return 0;
 }
