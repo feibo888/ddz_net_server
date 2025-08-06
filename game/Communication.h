@@ -16,6 +16,8 @@
 #include <arpa/inet.h>
 #include "ConnectionManager.h"
 #include "TurnTimeoutManager.h"
+#include "GameStateManager.h"
+#include "BombDetector.h"
 
 
 class Communication {
@@ -49,6 +51,8 @@ public:
     void handleSearchRoom(Message* reqMsg, Message& resMsg);
     //处理重新发牌
     void handleReDealCards(Message* reqMsg, Message& resMsg);
+    //处理地主确定
+    void handleLordDetermined(Message* reqMsg, Message& resMsg);
     //准备开始游戏
     void readyForPlay(std::string roomName, std::string data);
     //发牌
@@ -79,6 +83,20 @@ public:
     // 新增方法
     void generateConnectionId();
     void handleHeartbeat(Message* reqMsg, Message& resMsg);
+
+    // 新增：网络版发牌相关方法
+    void sendNetworkCardsToPlayers(userMap players,
+                                  const std::vector<std::string>& playerNames,
+                                  const std::vector<std::string>& playerCards,
+                                  const std::string& bottomCards);
+    void sendGameEndCards(const std::string& roomName);  // 游戏结束时发送剩余手牌
+
+    void sendLordCardsToAllPlayers(const std::string& roomName,
+                                    const std::string& lordName,
+                                    const std::string& bottomCards);
+
+    void calculateAndUpdateGameScores(const std::string& roomName, const std::string& winnerName);
+    void sendScoreUpdateToRoom(const std::string& roomName, const std::map<std::string, int>& playerScores);
 
 private:
     sendCallback m_sendCallback;

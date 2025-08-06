@@ -134,30 +134,12 @@ void Communication::parseRequest(Buffer* buf)
             resMsg.data1 = msg->data1;
             resMsg.resCode = ResponseCode::OtherGrabLord;
             realFunc = bind(&Communication::notifyOtherPlayers, this, placeholders::_1, msg->roomName, msg->userName);
-
-            // 检查是否确定了地主
-            if (isLordConfirmed(msg->data1)) {
-                // 地主开始出牌，设置超时
-                TurnTimeoutManager::getInstance()->startPlayerTurn(msg->roomName, msg->userName, 30);
-                // 将底牌加入地主手牌
-                if (m_redis) {
-                    std::string bottomCards = m_redis->getBottomCards(msg->roomName);
-                    if (!bottomCards.empty()) {
-                        m_redis->addCardsToPlayer(msg->roomName, msg->userName, bottomCards);
-                        std::cout << "地主 " << msg->userName << " 获得底牌：" << bottomCards << std::endl;
-
-                        // 设置游戏状态
-                        m_redis->setGameState(msg->roomName, "lord", msg->userName);
-                        m_redis->setGameState(msg->roomName, "current_turn", msg->userName);
-                        m_redis->setGameState(msg->roomName, "game_controller", "");
-                        m_redis->setGameState(msg->roomName, "game_phase", "playing");
-                        std::cout << "地主 " << msg->userName << " 开始出牌" << std::endl;
-                    }
-                }
-            }
-
             break;
         }
+        case RequestCode::LordDetermined:
+            handleLordDetermined(msg.get(), resMsg);
+            realFunc = nullptr;  // 不需要额外的通知逻辑
+            break;
         case RequestCode::PlayAHand:
         {
             // 先取消当前玩家的超时检测
@@ -172,6 +154,20 @@ void Communication::parseRequest(Buffer* buf)
                     // 不是过牌，更新控牌玩家
                     m_redis->setGameState(msg->roomName, "game_controller", msg->userName);
                 }
+            }
+
+            // 新增：炸弹检测和倍数应用
+            std::string roomName = msg->roomName;
+            std::string cardData = msg->data2;
+
+            // 解析出牌数据
+            BombDetector detector;
+            std::vector<Card> playedCards = detector.parseCards(cardData);
+
+            // 检测炸弹并应用倍数
+            if (detector.detectBomb(playedCards)) {
+                GameStateManager::getInstance()->applyBombMultiplier(roomName);
+                cout << "检测到炸弹！当前倍数：" << GameStateManager::getInstance()->getCurrentMultiplier(roomName) << endl;
             }
 
             // 更新玩家手牌（移除出的牌）
@@ -649,76 +645,293 @@ void Communication::handleGoodBye(Message *reqMsg)
 
 void Communication::handleGameOver(Message *reqMsg)
 {
-    int score = std::stoi(reqMsg->data1);
-    std::string userName = reqMsg->userName;
+    // int score = std::stoi(reqMsg->data1);
+    // std::string userName = reqMsg->userName;
+    // std::string roomName = reqMsg->roomName;
+    //
+    //
+    // cout << "开始更新玩家分数: " << userName << " 分数: " << score << endl;
+    //
+    // // 使用分布式锁确保更新操作的原子性
+    // std::string lockKey = "score_update_" + userName;
+    // bool lockAcquired = m_redis->acquireLockWithRetry(lockKey, 10, 3);
+    //
+    // if (!lockAcquired) {
+    //     cout << "获取分数更新锁失败: " << userName << endl;
+    //     return;
+    // }
+    //
+    // try {
+    //     // 开启MySQL事务
+    //     m_mysql->transaction();
+    //
+    //     // 1. 先更新MySQL（作为权威数据源）
+    //     std::string sql = "update information set score = ? where name = ?";
+    //     bool mysqlSuccess = false;
+    //
+    //     if (m_mysql->prepare(sql)) {
+    //         MYSQL_BIND bind[2] = {0};
+    //         bind[0].buffer_type = MYSQL_TYPE_LONG;
+    //         bind[0].buffer = &score;
+    //         bind[0].is_unsigned = 0;
+    //         bind[1].buffer_type = MYSQL_TYPE_STRING;
+    //         bind[1].buffer = (void*)userName.c_str();
+    //         bind[1].buffer_length = userName.size();
+    //
+    //         mysqlSuccess = m_mysql->bindParam(bind) && m_mysql->execute();
+    //         m_mysql->closeStmt();
+    //     }
+    //
+    //     if (mysqlSuccess) {
+    //         // 2. MySQL更新成功，提交事务
+    //         m_mysql->commit();
+    //
+    //         // 3. 更新Redis缓存
+    //         try {
+    //             m_redis->UpdatePlayerScore(roomName, userName, score);
+    //             cout << "分数更新成功: " << userName << " 新分数: " << score << endl;
+    //             LOG(INFO) << "Score updated successfully: " << userName << " score: " << score;
+    //         } catch (const std::exception& e) {
+    //             // Redis更新失败，记录错误但不回滚MySQL（最终一致性）
+    //             cout << "Redis分数更新失败: " << userName << " 错误: " << e.what() << endl;
+    //             LOG(ERROR) << "Redis score update failed: " << userName << " error: " << e.what();
+    //
+    //             // 可以考虑加入重试队列或者异步修复机制
+    //             scheduleRedisScoreSync(roomName, userName, score);
+    //         }
+    //     } else {
+    //         // MySQL更新失败，回滚事务
+    //         m_mysql->rollback();
+    //         cout << "MySQL分数更新失败，事务已回滚: " << userName << endl;
+    //         LOG(ERROR) << "MySQL score update failed, transaction rolled back: " << userName;
+    //     }
+    //
+    // } catch (const std::exception& e) {
+    //     // 发生异常，回滚MySQL事务
+    //     m_mysql->rollback();
+    //     cout << "分数更新过程中发生异常: " << e.what() << endl;
+    //     LOG(ERROR) << "Exception during score update: " << e.what();
+    // }
+    //
+    // // 释放分布式锁
+    // m_redis->releaseLock(lockKey);
+    //
+    // sendGameEndCards(reqMsg->roomName);
+
+
     std::string roomName = reqMsg->roomName;
-    
-    cout << "开始更新玩家分数: " << userName << " 分数: " << score << endl;
-    
-    // 使用分布式锁确保更新操作的原子性
-    std::string lockKey = "score_update_" + userName;
-    bool lockAcquired = m_redis->acquireLockWithRetry(lockKey, 10, 3);
-    
-    if (!lockAcquired) {
-        cout << "获取分数更新锁失败: " << userName << endl;
+    std::string winnerName = reqMsg->data1;  // 现在接收获胜玩家名字而不是分数
+
+    cout << "游戏结束，获胜玩家：" << winnerName << endl;
+
+    // 使用服务端分数计算
+    calculateAndUpdateGameScores(roomName, winnerName);
+
+    // 清理游戏状态
+    GameStateManager::getInstance()->endGame(roomName);
+
+    // 发送游戏结束确认消息给所有客户端
+    auto players = RoomList::getInstance()->getPlayers(roomName);
+    Message endMsg;
+    endMsg.resCode = ResponseCode::GameEndCards;
+    endMsg.roomName = roomName.c_str();
+    endMsg.data1 = winnerName.c_str();
+
+    Codec codec(&endMsg);
+    std::string msgData = codec.enCodeMsg();
+
+    for (const auto& player : players) {
+        player.second(msgData);
+    }
+
+    cout << "游戏结束处理完成，房间：" << roomName << endl;
+
+}
+
+void Communication::calculateAndUpdateGameScores(const std::string& roomName, const std::string& winnerName) {
+    // 获取房间内所有玩家
+    std::string orderData = m_redis->getGamePlayerOrder(roomName);
+    std::vector<std::string> playerNames = parsePlayerOrder(orderData);
+
+    if (playerNames.size() != 3) {
+        cout << "警告：房间 " << roomName << " 玩家数量不正确: " << playerNames.size() << endl;
         return;
     }
-    
+
+    // 使用游戏状态管理器计算分数变化
+    auto scoreChanges = GameStateManager::getInstance()->calculateScoreChanges(roomName, winnerName, playerNames);
+
+    if (scoreChanges.empty()) {
+        cout << "无法计算分数变化，跳过分数更新" << endl;
+        return;
+    }
+
+    // 使用分布式锁批量更新所有玩家分数
+    std::string lockKey = "room_score_update_" + roomName;
+    bool lockAcquired = m_redis->acquireLockWithRetry(lockKey, 10, 3);
+
+    if (!lockAcquired) {
+        cout << "获取房间分数更新锁失败: " << roomName << endl;
+        return;
+    }
+
     try {
-        // 开启MySQL事务
         m_mysql->transaction();
-        
-        // 1. 先更新MySQL（作为权威数据源）
-        std::string sql = "update information set score = ? where name = ?";
-        bool mysqlSuccess = false;
-        
-        if (m_mysql->prepare(sql)) {
-            MYSQL_BIND bind[2] = {0};
-            bind[0].buffer_type = MYSQL_TYPE_LONG;
-            bind[0].buffer = &score;
-            bind[0].is_unsigned = 0;
-            bind[1].buffer_type = MYSQL_TYPE_STRING;
-            bind[1].buffer = (void*)userName.c_str();
-            bind[1].buffer_length = userName.size();
-            
-            mysqlSuccess = m_mysql->bindParam(bind) && m_mysql->execute();
-            m_mysql->closeStmt();
-        }
-        
-        if (mysqlSuccess) {
-            // 2. MySQL更新成功，提交事务
-            m_mysql->commit();
-            
-            // 3. 更新Redis缓存
-            try {
-                m_redis->UpdatePlayerScore(roomName, userName, score);
-                cout << "分数更新成功: " << userName << " 新分数: " << score << endl;
-                LOG(INFO) << "Score updated successfully: " << userName << " score: " << score;
-            } catch (const std::exception& e) {
-                // Redis更新失败，记录错误但不回滚MySQL（最终一致性）
-                cout << "Redis分数更新失败: " << userName << " 错误: " << e.what() << endl;
-                LOG(ERROR) << "Redis score update failed: " << userName << " error: " << e.what();
-                
-                // 可以考虑加入重试队列或者异步修复机制
-                scheduleRedisScoreSync(roomName, userName, score);
+        bool allUpdatesSuccess = true;
+        std::map<std::string, int> finalScores;  // 存储所有玩家的最终分数
+
+        for (const auto& change : scoreChanges) {
+            const std::string& playerName = change.first;
+            int scoreChange = change.second;
+
+            // 先获取当前分数 - 使用现有的MySQL操作方式
+            std::string selectSql = "select score from information where name = ?";
+            int currentScore = 0;
+
+            if (m_mysql->prepare(selectSql)) {
+                MYSQL_BIND bind[1] = {0};
+                bind[0].buffer_type = MYSQL_TYPE_STRING;
+                bind[0].buffer = (void*)playerName.c_str();
+                bind[0].buffer_length = playerName.size();
+
+                if (m_mysql->bindParam(bind) && m_mysql->execute() && m_mysql->storeResult()) {
+                    int scoreResult = 0;
+                    if (m_mysql->fetchInt(scoreResult)) {
+                        currentScore = scoreResult;
+                    }
+                }
+                m_mysql->closeStmt();
             }
-        } else {
-            // MySQL更新失败，回滚事务
-            m_mysql->rollback();
-            cout << "MySQL分数更新失败，事务已回滚: " << userName << endl;
-            LOG(ERROR) << "MySQL score update failed, transaction rolled back: " << userName;
+
+            // 计算新分数并更新
+            int newScore = currentScore + scoreChange;
+            finalScores[playerName] = newScore;  // 保存最终分数
+
+            std::string updateSql = "update information set score = ? where name = ?";
+
+            if (m_mysql->prepare(updateSql)) {
+                MYSQL_BIND updateBind[2] = {0};
+                updateBind[0].buffer_type = MYSQL_TYPE_LONG;
+                updateBind[0].buffer = &newScore;
+                updateBind[0].is_unsigned = 0;
+                updateBind[1].buffer_type = MYSQL_TYPE_STRING;
+                updateBind[1].buffer = (void*)playerName.c_str();
+                updateBind[1].buffer_length = playerName.size();
+
+                if (!m_mysql->bindParam(updateBind) || !m_mysql->execute()) {
+                    allUpdatesSuccess = false;
+                    cout << "更新玩家 " << playerName << " 分数失败" << endl;
+                }
+                m_mysql->closeStmt();
+            } else {
+                allUpdatesSuccess = false;
+            }
+
+            // 同时更新Redis缓存 - 使用现有的方式
+            if (allUpdatesSuccess) {
+                try {
+                    m_redis->UpdatePlayerScore(roomName, playerName, newScore);
+                    cout << "玩家 " << playerName << " 分数更新: " << currentScore << " -> " << newScore
+                         << " (变化: " << scoreChange << ")" << endl;
+                } catch (const std::exception& e) {
+                    cout << "Redis分数更新失败: " << playerName << " 错误: " << e.what() << endl;
+                }
+            }
         }
-        
+
+        if (allUpdatesSuccess) {
+            m_mysql->commit();
+            cout << "房间 " << roomName << " 所有玩家分数更新成功" << endl;
+
+            // 直接使用已计算的分数发送更新消息
+            sendScoreUpdateToRoom(roomName, finalScores);
+        } else {
+            m_mysql->rollback();
+            cout << "房间 " << roomName << " 分数更新失败，事务已回滚" << endl;
+        }
+
     } catch (const std::exception& e) {
-        // 发生异常，回滚MySQL事务
         m_mysql->rollback();
         cout << "分数更新过程中发生异常: " << e.what() << endl;
-        LOG(ERROR) << "Exception during score update: " << e.what();
     }
-    
-    // 释放分布式锁
+
     m_redis->releaseLock(lockKey);
 }
+
+void Communication::sendScoreUpdateToRoom(const std::string& roomName, const std::map<std::string, int>& playerScores) {
+    try {
+        auto players = RoomList::getInstance()->getPlayers(roomName);
+        if (players.empty()) return;
+
+        // 构造所有玩家的分数信息 (格式: player1:score1#player2:score2#player3:score3#)
+        std::string allScores;
+
+        for (const auto& playerScore : playerScores) {
+            allScores += playerScore.first + ":" + std::to_string(playerScore.second) + "#";
+        }
+
+        // 保持末尾的分隔符以兼容现有格式约定
+
+        // 构造分数更新消息
+        Message scoreMsg;
+        scoreMsg.resCode = ResponseCode::ScoreUpdate;
+        scoreMsg.roomName = roomName.c_str();
+        scoreMsg.data1 = allScores.c_str();  // 所有玩家分数信息
+
+        // 发送给房间内所有玩家
+        Codec codec(&scoreMsg);
+        std::string msgData = codec.enCodeMsg();
+
+        for (const auto& player : players) {
+            player.second(msgData);
+        }
+
+        std::cout << "发送分数更新给房间 " << roomName << " 的所有玩家：" << allScores << std::endl;
+
+    } catch (const std::exception& e) {
+        std::cout << "发送分数更新信息异常：" << e.what() << std::endl;
+    }
+}
+
+void Communication::sendGameEndCards(const std::string& roomName) {
+    if (!m_redis) return;
+
+    try {
+        auto players = RoomList::getInstance()->getPlayers(roomName);
+        if (players.empty()) return;
+
+        // 构造游戏结束手牌信息
+        Message endMsg;
+        endMsg.resCode = ResponseCode::GameEndCards;
+        endMsg.roomName = roomName.c_str();
+
+        // 获取所有玩家剩余手牌
+        std::string allRemainCards;
+        std::string orderData = m_redis->getGamePlayerOrder(roomName);
+        std::vector<std::string> playerNames = parsePlayerOrder(orderData);
+
+        for (const auto& playerName : playerNames) {
+            std::string remainCards = m_redis->getPlayerCards(roomName, playerName);
+            allRemainCards += playerName + ":" + remainCards + "|";
+        }
+
+        endMsg.data1 = allRemainCards.c_str();
+
+        // 发送给所有玩家
+        Codec codec(&endMsg);
+        std::string msgData = codec.enCodeMsg();
+
+        for (const auto& player : players) {
+            player.second(msgData);
+        }
+
+        std::cout << "游戏结束，发送剩余手牌信息给所有玩家" << std::endl;
+
+    } catch (const std::exception& e) {
+        std::cout << "发送游戏结束手牌信息异常：" << e.what() << std::endl;
+    }
+}
+
 
 void Communication::handleSearchRoom(Message *reqMsg, Message &resMsg)
 {
@@ -753,6 +966,41 @@ void Communication::handleReDealCards(Message *reqMsg, Message &resMsg)
     {
         it.second(codec.enCodeMsg());
     }
+}
+
+void Communication::handleLordDetermined(Message *reqMsg, Message &resMsg)
+{
+    // 客户端已经确定了地主，直接处理地主确定后的逻辑
+    // 地主开始出牌，设置超时
+    TurnTimeoutManager::getInstance()->startPlayerTurn(reqMsg->roomName, reqMsg->userName, 30);
+
+    // 新增：记录地主信息到游戏状态管理器
+    std::string roomName = reqMsg->roomName;
+    std::string lordName = reqMsg->data1;
+    int baseBet = std::stoi(reqMsg->data2);
+
+    GameStateManager::getInstance()->setLord(roomName, lordName, baseBet);
+    
+    // 将底牌加入地主手牌
+    if (m_redis) {
+        std::string bottomCards = m_redis->getBottomCards(reqMsg->roomName);
+        if (!bottomCards.empty()) {
+            // 1. 将底牌加入地主手牌（服务端记录）
+            m_redis->addCardsToPlayer(reqMsg->roomName, reqMsg->userName, bottomCards);
+            std::cout << "地主 " << reqMsg->userName << " 获得底牌：" << bottomCards << std::endl;
+
+            // 2. 发送底牌信息给所有客户端
+            sendLordCardsToAllPlayers(reqMsg->roomName, reqMsg->userName, bottomCards);
+
+            // 3. 设置游戏状态
+            m_redis->setGameState(reqMsg->roomName, "lord", reqMsg->userName);
+            m_redis->setGameState(reqMsg->roomName, "current_turn", reqMsg->userName);
+            m_redis->setGameState(reqMsg->roomName, "game_controller", "");
+            m_redis->setGameState(reqMsg->roomName, "game_phase", "playing");
+            std::cout << "地主 " << reqMsg->userName << " 开始出牌" << std::endl;
+        }
+    }
+
 }
 
 
@@ -805,10 +1053,6 @@ void Communication::dealCards(userMap players)
         return;
     }
 
-    // 清理之前的手牌数据
-    if (m_redis) {
-        m_redis->clearRoomCards(roomName);
-    }
 
     // 获取玩家顺序（基于分数排序）
     std::string orderData = m_redis->getPlayerOrder(roomName);
@@ -820,7 +1064,9 @@ void Communication::dealCards(userMap players)
         return;
     }
 
+    // 清理之前的手牌数据
     if (m_redis) {
+        m_redis->clearRoomCards(roomName);
         m_redis->setGamePlayerOrder(roomName, orderData);
         std::cout << "保存固定游戏顺序：" << orderData << std::endl;
     }
@@ -861,14 +1107,50 @@ void Communication::dealCards(userMap players)
         m_redis->setBottomCards(roomName, lastCard);
     }
 
-    msg.resCode = ResponseCode::DealCards;
-    Codec codec(&msg);
+    //msg.resCode = ResponseCode::DealCards;
+    //Codec codec(&msg);
 
     // 发送给所有玩家（保持现有协议）
-    for (const auto& it : players) {
-        it.second(codec.enCodeMsg());
-    }
+    // for (const auto& it : players) {
+    //     it.second(codec.enCodeMsg());
+    // }
 
+    // 关键修改：按需发送牌数据
+    sendNetworkCardsToPlayers(players, playerNames, playerCards, lastCard);
+
+}
+
+void Communication::sendNetworkCardsToPlayers(userMap players,
+                                            const std::vector<std::string>& playerNames,
+                                            const std::vector<std::string>& playerCards,
+                                            const std::string& bottomCards) {
+    for (const auto& player : players) {
+        // 找到该连接对应的玩家索引
+        int playerIndex = -1;
+        for (int i = 0; i < playerNames.size(); ++i) {
+            if (playerNames[i] == player.first) {
+                playerIndex = i;
+                break;
+            }
+        }
+
+        if (playerIndex == -1) continue;
+
+        // 构造该玩家专用的发牌消息
+        Message playerMsg;
+        playerMsg.resCode = ResponseCode::NetworkDealCards;  // 使用新的响应码
+        playerMsg.data1 = playerCards[playerIndex];          // 只发送该玩家的手牌
+        playerMsg.data2 = "";                       // 发牌阶段不发送底牌
+        playerMsg.userName = playerNames[playerIndex].c_str();
+        playerMsg.roomName = m_currentRoomName.c_str();
+
+        // 发送给该玩家
+        Codec codec(&playerMsg);
+        player.second(codec.enCodeMsg());
+
+        std::cout << "发送手牌给玩家 " << playerNames[playerIndex]
+                  << "，手牌数据长度：" << playerCards[playerIndex].length() << std::endl;
+    }
 }
 
 std::vector<std::string> Communication::parsePlayerOrder(const std::string& orderData) {
@@ -1263,3 +1545,29 @@ void Communication::handleHeartbeat(Message* reqMsg, Message& resMsg) {
         std::cout << "处理心跳时异常：" << e.what() << std::endl;
     }
 }
+
+void Communication::sendLordCardsToAllPlayers(const std::string& roomName,
+                                             const std::string& lordName,
+                                             const std::string& bottomCards) {
+    auto players = RoomList::getInstance()->getPlayers(roomName);
+    if (players.empty()) return;
+
+    // 构造地主底牌消息
+    Message lordMsg;
+    lordMsg.resCode = ResponseCode::LordCards;  // 需要新增这个响应码
+    lordMsg.userName = lordName.c_str();
+    lordMsg.roomName = roomName.c_str();
+    lordMsg.data1 = bottomCards;  // 3张底牌数据
+
+    // 发送给所有玩家
+    Codec codec(&lordMsg);
+    std::string msgData = codec.enCodeMsg();
+
+    for (const auto& player : players) {
+        player.second(msgData);
+    }
+
+    std::cout << "已向房间 " << roomName << " 所有玩家发送地主底牌信息" << std::endl;
+}
+
+

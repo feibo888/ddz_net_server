@@ -16,6 +16,7 @@ enum RequestCode
     GoodBye = 11;
     ReDealCards = 12;
     Heartbeat = 13;
+    LordDetermined = 14;
 }
 
 enum ResponseCode
@@ -32,7 +33,12 @@ enum ResponseCode
     OtherPlayHand = 9;
     OtherLeaveRoom = 10;
     HeartbeatReply = 11;
-    Failed = 12;
+    NetworkDealCards = 12;       // 网络版发牌（只包含玩家自己的牌）
+    GameEndCards = 13;          // 游戏结束时的剩余手牌信息
+    PlayerCardCount = 14;     // 其他玩家手牌数量信息
+    LordCards = 15;
+    ScoreUpdate = 16;         // 新增：分数更新消息
+    Failed = 17;
 }
 
 message Information
