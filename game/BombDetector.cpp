@@ -2,6 +2,9 @@
 #include <map>
 #include <iostream>
 #include <sstream>
+#include <cstring>  // for memcpy
+#include <arpa/inet.h>  // for ntohl
+#include <cstdio>  // for printf
 
 bool BombDetector::detectBomb(const std::vector<Card>& cards) {
     if (cards.empty()) {
@@ -32,9 +35,9 @@ bool BombDetector::isJokerBomb(const std::vector<Card>& cards) {
     bool hasBigJoker = false;
 
     for (const auto& card : cards) {
-        if (card.point == 14) {  // 小王
+        if (card.point == 14) {  // 小王 (客户端 Card_SJ=14)
             hasSmallJoker = true;
-        } else if (card.point == 15) {  // 大王
+        } else if (card.point == 15) {  // 大王 (客户端 Card_BJ=15)
             hasBigJoker = true;
         }
     }
@@ -61,30 +64,33 @@ bool BombDetector::isNormalBomb(const std::vector<Card>& cards) {
 
 std::vector<Card> BombDetector::parseCards(const std::string& cardData) {
     std::vector<Card> cards;
-
+    
     if (cardData.empty()) {
         return cards;
     }
-
-    // 假设卡牌数据格式为 "point1-suit1#point2-suit2#..."
-    std::istringstream iss(cardData);
-    std::string cardStr;
-
-    while (std::getline(iss, cardStr, '#')) {
-        if (cardStr.empty()) continue;
-
-        size_t dashPos = cardStr.find('-');
-        if (dashPos != std::string::npos) {
-            try {
-                int point = std::stoi(cardStr.substr(0, dashPos));
-                int suit = std::stoi(cardStr.substr(dashPos + 1));
-                cards.emplace_back(point, suit);
-            } catch (const std::exception& e) {
-                std::cout << "解析卡牌数据失败: " << cardStr << std::endl;
-            }
+    
+    // 参考Communication.cpp中的正确解析逻辑
+    // 客户端使用QDataStream序列化卡牌数据，大端序格式
+    // 每张牌包含两个int：suit和point
+    const char* data = cardData.c_str();
+    int dataSize = cardData.size();
+    int cardCount = dataSize / (2 * sizeof(int)); // 每张牌占用2个int的空间
+    
+    std::cout << "BombDetector解析出牌数据，数据大小：" << dataSize << "，卡牌数量：" << cardCount << std::endl;
+    
+    // 解析每张牌
+    for (int i = 0; i < cardCount; ++i) {
+        int offset = i * 2 * sizeof(int);
+        if (offset + 2 * sizeof(int) <= dataSize) {
+            // 读取 suit 和 point (按QDataStream的大端序格式)
+            int suit = ntohl(*reinterpret_cast<const int*>(data + offset));
+            int point = ntohl(*reinterpret_cast<const int*>(data + offset + sizeof(int)));
+            
+            cards.emplace_back(point, suit);
+            std::cout << "BombDetector解析到卡牌：point=" << point << ", suit=" << suit << std::endl;
         }
     }
-
+    
     return cards;
 }
 
