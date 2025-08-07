@@ -16,6 +16,128 @@
 #include "JsonParse.h"
 #include "RoomList.h"
 
+
+Communication* Communication::s_instance = nullptr;
+
+Communication* Communication::getInstance() {
+    if (!s_instance) {
+        s_instance = new Communication();
+        // 初始化Redis连接
+        s_instance->m_redis = new Room();
+        if (!s_instance->m_redis->initEnvironment()) {
+            std::cout << "警告：Communication全局实例Redis连接失败" << std::endl;
+        }
+    }
+    return s_instance;
+}
+
+bool Communication::checkAndHandleGameEnd(const std::string& roomName, const std::string& userName) {
+    if (!m_redis) return false;
+
+    // 检查玩家手牌是否为空
+    std::string remainingCards = m_redis->getPlayerCards(roomName, userName);
+    if (remainingCards.empty() || remainingCards == "#") {
+        std::cout << "检测到游戏结束：玩家 " << userName << " 手牌为空" << std::endl;
+
+        // 执行完整的游戏结束流程
+        try {
+            // 0. 首先清理所有计时器，防止干扰
+            TurnTimeoutManager::getInstance()->clearRoomTimeouts(roomName);
+            
+            // 3. 发送剩余手牌信息和获胜者信息给所有客户端
+            sendGameEndCardsWithWinner(roomName, userName);
+
+            // 1. 计算和更新分数 - 这会发送分数更新消息给客户端
+            calculateAndUpdateGameScores(roomName, userName);
+
+            // 2. 清理游戏状态
+            GameStateManager::getInstance()->endGame(roomName);
+
+            // 4. 清理断线管理器的数据
+            DisconnectManager::getInstance()->cleanupGame(roomName);
+
+            std::cout << "游戏结束处理完成，房间：" << roomName << "，获胜者：" << userName << std::endl;
+            return true;
+
+        } catch (const std::exception& e) {
+            std::cout << "游戏结束处理异常：" << e.what() << std::endl;
+            return false;
+        }
+    }
+    return false;
+}
+
+void Communication::handleDisconnect()
+{
+    if (!m_pendingDisconnectCheck.isEmpty()) {
+            try {
+                std::cout << "当前玩家消息已发送，开始处理断线玩家AI出牌" << std::endl;
+
+                DisconnectManager* disconnectMgr = DisconnectManager::getInstance();
+
+                // **新增：支持连续多个断线玩家的迭代处理**
+                std::string currentDisconnectedPlayer = m_pendingDisconnectCheck.nextPlayer;
+                std::string roomName = m_pendingDisconnectCheck.roomName;
+                int maxIterations = 3; // 最多处理3个连续断线玩家
+                int iteration = 0;
+
+                while (!currentDisconnectedPlayer.empty() &&
+                       disconnectMgr->isDisconnectedPlayer(roomName, currentDisconnectedPlayer) &&
+                       iteration < maxIterations) {
+
+                    std::cout << "迭代处理断线玩家 [" << (iteration + 1) << "/3]: " << currentDisconnectedPlayer << std::endl;
+
+                    // 执行AI出牌（不会递归）
+                    disconnectMgr->executeAIPlay(roomName, currentDisconnectedPlayer);
+
+                    // 获取下一个玩家
+                    std::string nextPlayer = getNextPlayer(roomName, currentDisconnectedPlayer);
+
+                    // 更新游戏状态
+                    if (m_redis) {
+                        m_redis->setGameState(roomName, "current_turn", nextPlayer);
+                    }
+
+                    // 检查下一个玩家是否也断线
+                    if (!nextPlayer.empty() && disconnectMgr->isDisconnectedPlayer(roomName, nextPlayer)) {
+                        std::cout << "检测到下一个玩家 " << nextPlayer << " 也断线，继续迭代处理" << std::endl;
+                        currentDisconnectedPlayer = nextPlayer;
+                        iteration++;
+                    } else {
+                        if (nextPlayer.empty()) {
+                            std::cout << "无法确定下一个玩家，停止处理" << std::endl;
+                        } else {
+                            std::cout << "下一个玩家 " << nextPlayer << " 在线，完成断线处理" << std::endl;
+                        }
+                        break;
+                    }
+                }
+
+                if (iteration >= maxIterations) {
+                    std::cout << "警告：连续断线玩家处理达到上限(" << maxIterations << ")，停止处理" << std::endl;
+                }
+
+                std::cout << "多玩家断线AI出牌处理完成，共处理 " << (iteration + 1) << " 个断线玩家" << std::endl;
+
+            } catch (const std::exception& e) {
+                std::cout << "处理多玩家断线AI出牌时发生异常：" << e.what() << std::endl;
+            } catch (...) {
+                std::cout << "处理多玩家断线AI出牌时发生未知异常" << std::endl;
+            }
+
+            // 清理临时数据
+            m_pendingDisconnectCheck.clear();
+        }
+}
+
+bool Communication::checkGameEndAndHandle(const std::string& roomName, const std::string& userName) {
+    Communication* instance = getInstance();
+    if (!instance || !instance->m_redis) {
+        return false;
+    }
+    return instance->checkAndHandleGameEnd(roomName, userName);
+}
+
 Communication::Communication()
 {
     JsonParse js;
@@ -156,6 +278,15 @@ void Communication::parseRequest(Buffer* buf)
                 }
             }
 
+            //先转发玩家的牌，然后再判断游戏是否结束
+            resMsg.data1 = msg->data1;
+            resMsg.data2 = msg->data2;
+            resMsg.resCode = ResponseCode::OtherPlayHand;
+
+            codec.reload(&resMsg);
+
+            notifyOtherPlayers(codec.enCodeMsg(), msg->roomName, msg->userName);
+
             // 新增：炸弹检测和倍数应用
             std::string roomName = msg->roomName;
             std::string cardData = msg->data2;
@@ -170,14 +301,19 @@ void Communication::parseRequest(Buffer* buf)
                 cout << "检测到炸弹！当前倍数：" << GameStateManager::getInstance()->getCurrentMultiplier(roomName) << endl;
             }
 
-            // 更新玩家手牌（移除出的牌）
-            updatePlayerHandAfterPlay(msg->roomName, msg->userName, msg->data2);
+            // 更新玩家手牌（移除出的牌）并检查游戏是否结束
+            bool gameEnded = updatePlayerHandAfterPlay(msg->roomName, msg->userName, msg->data2);
 
 
-            resMsg.data1 = msg->data1;
-            resMsg.data2 = msg->data2;
-            resMsg.resCode = ResponseCode::OtherPlayHand;
-            realFunc = bind(&Communication::notifyOtherPlayers, this, placeholders::_1, msg->roomName, msg->userName);
+            realFunc = nullptr;
+            //realFunc = bind(&Communication::notifyOtherPlayers, this, placeholders::_1, msg->roomName, msg->userName);
+
+            // 如果游戏已结束，不需要继续切换玩家和设置计时器
+            if (gameEnded) {
+                std::cout << "游戏已结束，停止后续流程" << std::endl;
+                m_pendingDisconnectCheck.clear();
+                break;
+            }
 
             // 确定下一个玩家
             std::string nextPlayer = getNextPlayer(msg->roomName, msg->userName);
@@ -201,6 +337,8 @@ void Communication::parseRequest(Buffer* buf)
                 std::cout << "警告：无法确定下一个出牌玩家！" << std::endl;
                 m_pendingDisconnectCheck.clear();
             }
+
+            handleDisconnect();
 
             break;
         }
@@ -246,65 +384,7 @@ void Communication::parseRequest(Buffer* buf)
         realFunc(codec.enCodeMsg());
         //cout << "已回复请求: " << msg->reqCode << ", 响应码: " << resMsg.resCode << endl;
 
-        if (!m_pendingDisconnectCheck.isEmpty()) {
-            try {
-                std::cout << "当前玩家消息已发送，开始处理断线玩家AI出牌" << std::endl;
-
-                DisconnectManager* disconnectMgr = DisconnectManager::getInstance();
-
-                // **新增：支持连续多个断线玩家的迭代处理**
-                std::string currentDisconnectedPlayer = m_pendingDisconnectCheck.nextPlayer;
-                std::string roomName = m_pendingDisconnectCheck.roomName;
-                int maxIterations = 3; // 最多处理3个连续断线玩家
-                int iteration = 0;
-
-                while (!currentDisconnectedPlayer.empty() &&
-                       disconnectMgr->isDisconnectedPlayer(roomName, currentDisconnectedPlayer) &&
-                       iteration < maxIterations) {
-
-                    std::cout << "迭代处理断线玩家 [" << (iteration + 1) << "/3]: " << currentDisconnectedPlayer << std::endl;
-
-                    // 执行AI出牌（不会递归）
-                    disconnectMgr->executeAIPlay(roomName, currentDisconnectedPlayer);
-
-                    // 获取下一个玩家
-                    std::string nextPlayer = getNextPlayer(roomName, currentDisconnectedPlayer);
-
-                    // 更新游戏状态
-                    if (m_redis) {
-                        m_redis->setGameState(roomName, "current_turn", nextPlayer);
-                    }
-
-                    // 检查下一个玩家是否也断线
-                    if (!nextPlayer.empty() && disconnectMgr->isDisconnectedPlayer(roomName, nextPlayer)) {
-                        std::cout << "检测到下一个玩家 " << nextPlayer << " 也断线，继续迭代处理" << std::endl;
-                        currentDisconnectedPlayer = nextPlayer;
-                        iteration++;
-                    } else {
-                        if (nextPlayer.empty()) {
-                            std::cout << "无法确定下一个玩家，停止处理" << std::endl;
-                        } else {
-                            std::cout << "下一个玩家 " << nextPlayer << " 在线，完成断线处理" << std::endl;
-                        }
-                        break;
-                    }
-                }
-
-                if (iteration >= maxIterations) {
-                    std::cout << "警告：连续断线玩家处理达到上限(" << maxIterations << ")，停止处理" << std::endl;
-                }
-
-                std::cout << "多玩家断线AI出牌处理完成，共处理 " << (iteration + 1) << " 个断线玩家" << std::endl;
-
-            } catch (const std::exception& e) {
-                std::cout << "处理多玩家断线AI出牌时发生异常：" << e.what() << std::endl;
-            } catch (...) {
-                std::cout << "处理多玩家断线AI出牌时发生未知异常" << std::endl;
-            }
-
-            // 清理临时数据
-            m_pendingDisconnectCheck.clear();
-        }
+        handleDisconnect();
     }
 
 }
@@ -730,19 +810,21 @@ void Communication::handleGameOver(Message *reqMsg)
     // 清理游戏状态
     GameStateManager::getInstance()->endGame(roomName);
 
+    sendGameEndCards(reqMsg->roomName);
+
     // 发送游戏结束确认消息给所有客户端
-    auto players = RoomList::getInstance()->getPlayers(roomName);
-    Message endMsg;
-    endMsg.resCode = ResponseCode::GameEndCards;
-    endMsg.roomName = roomName.c_str();
-    endMsg.data1 = winnerName.c_str();
-
-    Codec codec(&endMsg);
-    std::string msgData = codec.enCodeMsg();
-
-    for (const auto& player : players) {
-        player.second(msgData);
-    }
+    // auto players = RoomList::getInstance()->getPlayers(roomName);
+    // Message endMsg;
+    // endMsg.resCode = ResponseCode::GameEndCards;
+    // endMsg.roomName = roomName.c_str();
+    // endMsg.data1 = winnerName.c_str();
+    //
+    // Codec codec(&endMsg);
+    // std::string msgData = codec.enCodeMsg();
+    //
+    // for (const auto& player : players) {
+    //     player.second(msgData);
+    // }
 
     cout << "游戏结束处理完成，房间：" << roomName << endl;
 
@@ -932,6 +1014,45 @@ void Communication::sendGameEndCards(const std::string& roomName) {
     }
 }
 
+void Communication::sendGameEndCardsWithWinner(const std::string& roomName, const std::string& winnerName) {
+    if (!m_redis) return;
+
+    try {
+        auto players = RoomList::getInstance()->getPlayers(roomName);
+        if (players.empty()) return;
+
+        // 构造游戏结束消息，包含获胜者和剩余手牌信息
+        Message endMsg;
+        endMsg.resCode = ResponseCode::GameEndCards;
+        endMsg.roomName = roomName.c_str();
+        endMsg.userName = winnerName.c_str();  // 获胜者信息
+
+        // 获取所有玩家剩余手牌
+        std::string allRemainCards;
+        std::string orderData = m_redis->getGamePlayerOrder(roomName);
+        std::vector<std::string> playerNames = parsePlayerOrder(orderData);
+
+        for (const auto& playerName : playerNames) {
+            std::string remainCards = m_redis->getPlayerCards(roomName, playerName);
+            allRemainCards += playerName + ":" + remainCards + "|";
+        }
+
+        endMsg.data1 = allRemainCards.c_str();  // 剩余手牌信息
+
+        // 发送给所有玩家
+        Codec codec(&endMsg);
+        std::string msgData = codec.enCodeMsg();
+
+        for (const auto& player : players) {
+            player.second(msgData);
+        }
+
+        std::cout << "游戏结束，发送获胜者（" << winnerName << "）和剩余手牌信息给所有玩家" << std::endl;
+
+    } catch (const std::exception& e) {
+        std::cout << "发送游戏结束信息异常：" << e.what() << std::endl;
+    }
+}
 
 void Communication::handleSearchRoom(Message *reqMsg, Message &resMsg)
 {
@@ -1220,9 +1341,21 @@ void Communication::notifyOtherPlayers(std::string data, std::string roomName, s
 {
     //得到另外两个玩家
     auto players = RoomList::getInstance()->getPartners(roomName, userName);
+    
+    DisconnectManager* disconnectMgr = DisconnectManager::getInstance();
+    
     for (const auto& it : players)
-    {
-        it.second(data);
+    {        
+        // **关键修复：跳过断线玩家，避免消息发送超时**
+        if (!disconnectMgr->isDisconnectedPlayer(roomName, it.first)) {            
+            try {
+                it.second(data);
+            } catch (const std::exception& e) {
+                std::cout << "向玩家 " << it.first << " 发送消息失败: " << e.what() << std::endl;
+            }
+        } else {
+            //std::cout << "跳过断线玩家：" << it.first << std::endl;
+        }
     }
 }
 
@@ -1290,6 +1423,33 @@ void Communication::restartGame(Message *reqMsg)
 
 void Communication::startGame(std::string roomName, userMap players)
 {
+    std::cout << "开始新游戏，房间：" << roomName << "，玩家数量：" << players.size() << std::endl;
+    
+    // 新游戏开始前，确保完全清理上一局的状态
+    try {
+        // 1. 清理所有计时器
+        TurnTimeoutManager::getInstance()->clearRoomTimeouts(roomName);
+        std::cout << "已清理房间 " << roomName << " 的所有计时器" << std::endl;
+        
+        // 2. 清理游戏状态管理器
+        GameStateManager::getInstance()->endGame(roomName);
+        std::cout << "已清理房间 " << roomName << " 的游戏状态" << std::endl;
+        
+        // 3. 清理断线管理器
+        DisconnectManager::getInstance()->cleanupGame(roomName);
+        std::cout << "已清理房间 " << roomName << " 的断线管理数据" << std::endl;
+        
+        // 4. 清理Redis中的游戏状态（但保留玩家分数）
+        if (m_redis) {
+            // 清理完整的游戏状态hash，包括：lord, current_turn, game_controller, game_phase等
+            m_redis->del(roomName + "_state");
+            std::cout << "已清理房间 " << roomName << " 的完整Redis游戏状态" << std::endl;
+        }
+        
+    } catch (const std::exception& e) {
+        std::cout << "清理游戏状态时出现异常：" << e.what() << std::endl;
+    }
+    
     //房间满了
     //发牌数据
     dealCards(players);
@@ -1306,6 +1466,8 @@ void Communication::startGame(std::string roomName, userMap players)
     {
         it.second(codec.enCodeMsg());
     }
+    
+    std::cout << "新游戏启动完成，房间：" << roomName << std::endl;
 }
 
 // void Communication::syncRoomStateToRedis(std::string roomName, userMap players)
@@ -1428,13 +1590,13 @@ bool Communication::isLordConfirmed(const std::string& grabData) {
     return grabData == "3";
 }
 
-void Communication::updatePlayerHandAfterPlay(const std::string& roomName, const std::string& userName, const std::string& playedCards) {
-    if (!m_redis) return;
+bool Communication::updatePlayerHandAfterPlay(const std::string& roomName, const std::string& userName, const std::string& playedCards) {
+    if (!m_redis) return false;
 
     // playedCards是data2，包含序列化的Card对象
     if (playedCards.empty()) {
         std::cout << "玩家 " << userName << " 过牌" << std::endl;
-        return; // 过牌，不需要移除手牌
+        return false; // 过牌，游戏继续
     }
 
     // 解析data2中的Card对象（QDataStream格式）
@@ -1461,12 +1623,8 @@ void Communication::updatePlayerHandAfterPlay(const std::string& roomName, const
         }
     }
 
-    // 检查玩家手牌是否为空（游戏结束）
-    std::string remainingCards = m_redis->getPlayerCards(roomName, userName);
-    if (remainingCards.empty() || remainingCards == "#") {
-        std::cout << "玩家 " << userName << " 手牌出完，游戏结束！" << std::endl;
-        // 这里可以触发游戏结束逻辑
-    }
+    // 检查游戏是否结束，返回结果
+    return checkAndHandleGameEnd(roomName, userName);
 }
 
 std::string Communication::getNextPlayer(const std::string& roomName, const std::string& currentPlayer) {

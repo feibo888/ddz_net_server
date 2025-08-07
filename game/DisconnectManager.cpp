@@ -9,6 +9,7 @@
 #include "../serialize/Codec.h"
 #include <sstream>
 #include <algorithm>
+#include <Communication.h>
 #include <iostream>
 #include <cstring>    // for memcpy
 #include <arpa/inet.h>
@@ -112,6 +113,12 @@ void DisconnectManager::executeAIPlay(const std::string& roomName, const std::st
             m_redis->setGameState(roomName, "game_controller", userName);
 
             std::cout << "AI代替断线玩家 " << userName << " 出牌（第一手）：" << playData << std::endl;
+
+            if (Communication::checkGameEndAndHandle(roomName, userName)) {
+                std::cout << "AI出牌触发游戏结束，完整流程已处理" << std::endl;
+                return; // 游戏已结束，不需要继续处理下一个玩家
+            }
+
         } else {
             // 跟牌：直接过牌
             playData = "";
@@ -201,12 +208,16 @@ void DisconnectManager::sendAIPlayMessage(const std::string& roomName, const std
     for (const auto& player : players) {
         std::cout << "检查玩家：" << player.first << " 是否需要通知" << std::endl;
 
-        // **重要：只通知其他在线玩家，不通知断线的AI玩家自己**
-        if (player.first != userName) {
+        // **重要：只通知在线玩家，跳过断线玩家（包括AI玩家自己和其他断线玩家）**
+        if (player.first != userName && !isDisconnectedPlayer(roomName, player.first)) {
             player.second(encodedMsg);
-            std::cout << "已通知玩家：" << player.first << " AI玩家 " << userName << " 的出牌" << std::endl;
+            std::cout << "已通知在线玩家：" << player.first << " AI玩家 " << userName << " 的出牌" << std::endl;
         } else {
-            std::cout << "跳过断线玩家：" << userName << " 自己，避免消息混乱" << std::endl;
+            if (player.first == userName) {
+                std::cout << "跳过断线玩家：" << userName << " 自己，避免消息混乱" << std::endl;
+            } else {
+                std::cout << "跳过断线玩家：" << player.first << " 避免发送超时" << std::endl;
+            }
         }
     }
 }

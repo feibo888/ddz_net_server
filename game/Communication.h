@@ -77,7 +77,7 @@ public:
     // 新增：辅助方法
     std::vector<std::string> parsePlayerOrder(const std::string& orderData);
     bool isLordConfirmed(const std::string& grabData);
-    void updatePlayerHandAfterPlay(const std::string& roomName, const std::string& userName, const std::string& playedCards);
+    bool updatePlayerHandAfterPlay(const std::string& roomName, const std::string& userName, const std::string& playedCards);
     std::string getNextPlayer(const std::string& roomName, const std::string& currentPlayer);
 
     // 新增方法
@@ -90,6 +90,7 @@ public:
                                   const std::vector<std::string>& playerCards,
                                   const std::string& bottomCards);
     void sendGameEndCards(const std::string& roomName);  // 游戏结束时发送剩余手牌
+    void sendGameEndCardsWithWinner(const std::string& roomName, const std::string& winnerName);
 
     void sendLordCardsToAllPlayers(const std::string& roomName,
                                     const std::string& lordName,
@@ -97,6 +98,13 @@ public:
 
     void calculateAndUpdateGameScores(const std::string& roomName, const std::string& winnerName);
     void sendScoreUpdateToRoom(const std::string& roomName, const std::map<std::string, int>& playerScores);
+
+    static Communication* getInstance();
+    // 新增：AI可调用的游戏结束检测方法
+    static bool checkGameEndAndHandle(const std::string& roomName, const std::string& userName);
+    bool checkAndHandleGameEnd(const std::string& roomName, const std::string& userName);
+
+    void handleDisconnect();
 
 private:
     sendCallback m_sendCallback;
@@ -110,6 +118,8 @@ private:
     std::string m_currentRoomName;
     std::string m_currentUserName;
     std::string m_connectionId;  // 新增：连接唯一标识
+
+    static Communication* s_instance;
 
     struct PendingDisconnectCheck {
         std::string roomName;
