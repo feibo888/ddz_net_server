@@ -29,6 +29,50 @@ void GameStateManager::setLord(const std::string& roomName, const std::string& l
     std::cout << "房间 " << roomName << " 地主：" << lordName << "，底分：" << baseBet << std::endl;
 }
 
+bool GameStateManager::recordGrabLordBet(const std::string& roomName, const std::string& playerName, int bet) {
+    std::lock_guard<std::mutex> lock(m_statesMutex);
+    auto& state = m_roomStates[roomName];
+    
+    // 记录玩家的抢地主分数
+    state.grabLordBets[playerName] = bet;
+    state.grabLordCount++;
+    
+    // 更新最高分数玩家
+    if (bet > state.highestBet) {
+        state.highestBet = bet;
+        state.highestBetPlayer = playerName;
+    }
+    
+    std::cout << "房间 " << roomName << " 玩家 " << playerName << " 抢地主分数：" << bet 
+              << "，当前最高：" << state.highestBet << "（" << state.highestBetPlayer << "）"
+              << "，已抢地主次数：" << state.grabLordCount << std::endl;
+    
+    // 检查是否需要重新发牌或确定地主
+    if (bet == 3) {
+        // 有人抢3分，直接成为地主
+        return true;
+    }
+    
+    if (state.grabLordCount == 3) {
+        // 3轮抢地主结束
+        return true;
+    }
+    
+    return false; // 继续抢地主
+}
+
+void GameStateManager::resetGrabLordState(const std::string& roomName) {
+    std::lock_guard<std::mutex> lock(m_statesMutex);
+    auto& state = m_roomStates[roomName];
+    
+    state.grabLordBets.clear();
+    state.grabLordCount = 0;
+    state.highestBetPlayer.clear();
+    state.highestBet = 0;
+    
+    std::cout << "房间 " << roomName << " 重置抢地主状态" << std::endl;
+}
+
 void GameStateManager::applyBombMultiplier(const std::string& roomName) {
     std::lock_guard<std::mutex> lock(m_statesMutex);
     auto& state = m_roomStates[roomName];

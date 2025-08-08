@@ -253,8 +253,8 @@ void Communication::parseRequest(Buffer* buf)
             break;
         case RequestCode::GrabLord:
         {
-            resMsg.data1 = msg->data1;
-            resMsg.resCode = ResponseCode::OtherGrabLord;
+            // 处理抢地主逻辑
+            handleGrabLord(msg.get(), resMsg);
             realFunc = bind(&Communication::notifyOtherPlayers, this, placeholders::_1, msg->roomName, msg->userName);
             break;
         }
@@ -1063,65 +1063,185 @@ void Communication::handleSearchRoom(Message *reqMsg, Message &resMsg)
 
 void Communication::handleReDealCards(Message *reqMsg, Message &resMsg)
 {
-    auto players = RoomList::getInstance()->getPlayers(reqMsg->roomName);
+    // 注意：现在重新发牌主要由服务端在handleGrabLord中主动控制
+    // 此方法保留用于向后兼容，但建议客户端不再发送此请求
+    std::cout << "[ReDeal] 收到客户端重新发牌请求，但现在推荐由服务端主动控制重新发牌，room=" 
+              << reqMsg->roomName << std::endl;
+    
+    const std::string roomName = reqMsg->roomName;
+    auto players = RoomList::getInstance()->getPlayers(roomName);
 
-    // 清理旧的手牌数据
-    if (m_redis)
-    {
-        m_redis->clearRoomCards(reqMsg->roomName);
-        std::cout << "重新发牌，清理房间 " << reqMsg->roomName << " 的旧数据" << std::endl;
+    // 房间未满，忽略重复或异常请求
+    if (players.size() != 3) {
+        std::cout << "[ReDeal] 房间人数不足，忽略重新发牌请求，room=" << roomName
+                  << ", players=" << players.size() << std::endl;
+        return;
     }
 
-    //发牌数据
-    dealCards(players);
-    //通知客户端可以开始游戏了
-    Message msg;
-    msg.resCode = ResponseCode::StartGame;
-    // data1 : userName-次序-分数
-    msg.data1 = m_redis->getPlayerOrder(reqMsg->roomName);
+    // 保留分布式锁防抖，因为可能仍有旧客户端发送此请求
+    std::string lockKey = "room_redeal_lock_" + roomName;
+    bool gotLock = (m_redis && m_redis->acquireLockWithRetry(lockKey, 5, 3));
+    if (!gotLock) {
+        std::cout << "[ReDeal] 已有请求在处理或刚处理完，忽略本次请求，room=" << roomName << std::endl;
+        return;
+    }
 
-    cout << "Starting game: " << msg.data1 << endl;
-    Codec codec(&msg);
+    try {
+        // 清理旧的手牌数据
+        if (m_redis) {
+            m_redis->clearRoomCards(roomName);
+            std::cout << "[ReDeal] 清理旧手牌数据，room=" << roomName << std::endl;
+        }
 
-    for (const auto& it : players)
-    {
-        it.second(codec.enCodeMsg());
+        // 发牌数据（只执行一次）
+        dealCards(players);
+
+        // 通知客户端可以开始游戏了
+        Message msg;
+        msg.resCode = ResponseCode::StartGame;
+        // data1 : userName-次序-分数
+        msg.data1 = m_redis ? m_redis->getPlayerOrder(roomName) : "";
+
+        std::cout << "[ReDeal] Starting game: " << msg.data1 << std::endl;
+        Codec codec(&msg);
+
+        for (const auto& it : players) {
+            it.second(codec.enCodeMsg());
+        }
+    } catch (const std::exception& e) {
+        std::cout << "[ReDeal] 处理异常: " << e.what() << std::endl;
+    }
+
+    // 释放锁
+    if (m_redis) {
+        m_redis->releaseLock(lockKey);
+    }
+}
+
+void Communication::handleGrabLord(Message *reqMsg, Message &resMsg)
+{
+    const std::string roomName = reqMsg->roomName;
+    const std::string playerName = reqMsg->userName;
+    int bet = std::stoi(reqMsg->data1);
+    
+    // 设置响应消息（用于转发给其他玩家）
+    resMsg.data1 = reqMsg->data1;
+    resMsg.resCode = ResponseCode::OtherGrabLord;
+    
+    // 记录抢地主分数并判断是否结束
+    bool shouldFinish = GameStateManager::getInstance()->recordGrabLordBet(roomName, playerName, bet);
+    
+    if (shouldFinish) {
+        // 获取房间状态
+        auto* roomState = GameStateManager::getInstance()->getRoomState(roomName);
+        if (!roomState) {
+            std::cout << "错误：找不到房间状态 " << roomName << std::endl;
+            return;
+        }
+        
+        if (roomState->highestBet == 0) {
+            // 所有人都是0分，需要重新发牌
+            std::cout << "房间 " << roomName << " 所有玩家都不抢地主，服务端主动重新发牌" << std::endl;
+            
+            // 重置抢地主状态
+            GameStateManager::getInstance()->resetGrabLordState(roomName);
+            
+            // 服务端主动重新发牌
+            auto players = RoomList::getInstance()->getPlayers(roomName);
+            handleReDealCardsInternal(roomName, players);
+            
+        } else {
+            // 确定地主
+            std::cout << "房间 " << roomName << " 地主确定：" << roomState->highestBetPlayer 
+                      << "，分数：" << roomState->highestBet << std::endl;
+            
+            // 设置地主信息
+            GameStateManager::getInstance()->setLord(roomName, roomState->highestBetPlayer, roomState->highestBet);
+            
+            // 发送地主确定消息和底牌
+            sendLordDeterminedToAllPlayers(roomName, roomState->highestBetPlayer, roomState->highestBet);
+            
+            // 重置抢地主状态，为下一局准备
+            GameStateManager::getInstance()->resetGrabLordState(roomName);
+        }
+    }
+}
+
+void Communication::handleReDealCardsInternal(const std::string& roomName, const userMap& players)
+{
+    // 注意：此方法现在只由服务端的handleGrabLord主动调用，不再需要分布式锁防护
+    // 因为调用路径是单一且顺序执行的
+    
+    try {
+        // 清理旧的手牌数据
+        if (m_redis) {
+            m_redis->clearRoomCards(roomName);
+            std::cout << "[ReDealInternal] 清理旧手牌数据，room=" << roomName << std::endl;
+        }
+
+        // 发牌数据
+        dealCards(players);
+
+        // 通知客户端可以开始游戏了
+        Message msg;
+        msg.resCode = ResponseCode::StartGame;
+        // data1 : userName-次序-分数
+        msg.data1 = m_redis ? m_redis->getPlayerOrder(roomName) : "";
+
+        std::cout << "[ReDealInternal] Starting game: " << msg.data1 << std::endl;
+        Codec codec(&msg);
+
+        for (const auto& it : players) {
+            it.second(codec.enCodeMsg());
+        }
+    } catch (const std::exception& e) {
+        std::cout << "[ReDealInternal] 处理异常: " << e.what() << std::endl;
+    }
+}
+
+void Communication::sendLordDeterminedToAllPlayers(const std::string& roomName, const std::string& lordName, int bet)
+{
+    auto players = RoomList::getInstance()->getPlayers(roomName);
+    if (players.empty()) {
+        std::cout << "警告：房间 " << roomName << " 没有找到玩家" << std::endl;
+        return;
+    }
+    
+    // 设置计时器
+    TurnTimeoutManager::getInstance()->startPlayerTurn(roomName, lordName, 30);
+    
+    // 将底牌加入地主手牌
+    if (m_redis) {
+        std::string bottomCards = m_redis->getBottomCards(roomName);
+        if (!bottomCards.empty()) {
+            // 1. 将底牌加入地主手牌（服务端记录）
+            m_redis->addCardsToPlayer(roomName, lordName, bottomCards);
+            std::cout << "地主 " << lordName << " 获得底牌：" << bottomCards << std::endl;
+
+            // 2. 发送底牌信息给所有客户端
+            sendLordCardsToAllPlayers(roomName, lordName, bottomCards);
+
+            // 3. 设置游戏状态
+            m_redis->setGameState(roomName, "lord", lordName);
+            m_redis->setGameState(roomName, "current_turn", lordName);
+            m_redis->setGameState(roomName, "game_controller", "");
+            m_redis->setGameState(roomName, "game_phase", "playing");
+            std::cout << "地主 " << lordName << " 开始出牌" << std::endl;
+        }
     }
 }
 
 void Communication::handleLordDetermined(Message *reqMsg, Message &resMsg)
 {
-    // 客户端已经确定了地主，直接处理地主确定后的逻辑
-    // 地主开始出牌，设置超时
-    TurnTimeoutManager::getInstance()->startPlayerTurn(reqMsg->roomName, reqMsg->userName, 30);
-
-    // 新增：记录地主信息到游戏状态管理器
-    std::string roomName = reqMsg->roomName;
-    std::string lordName = reqMsg->data1;
-    int baseBet = std::stoi(reqMsg->data2);
-
-    GameStateManager::getInstance()->setLord(roomName, lordName, baseBet);
+    // 注意：从现在开始，地主确定由服务端在handleGrabLord中主动处理
+    // 这个方法保留用于向后兼容，但不再执行主要逻辑
     
-    // 将底牌加入地主手牌
-    if (m_redis) {
-        std::string bottomCards = m_redis->getBottomCards(reqMsg->roomName);
-        if (!bottomCards.empty()) {
-            // 1. 将底牌加入地主手牌（服务端记录）
-            m_redis->addCardsToPlayer(reqMsg->roomName, reqMsg->userName, bottomCards);
-            std::cout << "地主 " << reqMsg->userName << " 获得底牌：" << bottomCards << std::endl;
-
-            // 2. 发送底牌信息给所有客户端
-            sendLordCardsToAllPlayers(reqMsg->roomName, reqMsg->userName, bottomCards);
-
-            // 3. 设置游戏状态
-            m_redis->setGameState(reqMsg->roomName, "lord", reqMsg->userName);
-            m_redis->setGameState(reqMsg->roomName, "current_turn", reqMsg->userName);
-            m_redis->setGameState(reqMsg->roomName, "game_controller", "");
-            m_redis->setGameState(reqMsg->roomName, "game_phase", "playing");
-            std::cout << "地主 " << reqMsg->userName << " 开始出牌" << std::endl;
-        }
-    }
-
+    std::cout << "收到客户端LordDetermined请求，但现在由服务端主动确定地主，忽略此请求。房间："
+              << reqMsg->roomName << "，用户：" << reqMsg->userName << std::endl;
+    
+    // 可以选择性地设置响应消息，告知客户端请求已收到但未处理
+    resMsg.resCode = ResponseCode::Failed;
+    resMsg.data1 = "Lord determination is now handled by server automatically";
 }
 
 

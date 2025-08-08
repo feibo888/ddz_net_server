@@ -51,6 +51,8 @@ public:
     void handleSearchRoom(Message* reqMsg, Message& resMsg);
     //处理重新发牌
     void handleReDealCards(Message* reqMsg, Message& resMsg);
+    //处理抢地主
+    void handleGrabLord(Message* reqMsg, Message& resMsg);
     //处理地主确定
     void handleLordDetermined(Message* reqMsg, Message& resMsg);
     //准备开始游戏
@@ -98,6 +100,10 @@ public:
 
     void calculateAndUpdateGameScores(const std::string& roomName, const std::string& winnerName);
     void sendScoreUpdateToRoom(const std::string& roomName, const std::map<std::string, int>& playerScores);
+    
+    // 新增：抢地主相关方法
+    void handleReDealCardsInternal(const std::string& roomName, const userMap& players);
+    void sendLordDeterminedToAllPlayers(const std::string& roomName, const std::string& lordName, int bet);
 
     static Communication* getInstance();
     // 新增：AI可调用的游戏结束检测方法
