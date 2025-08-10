@@ -108,7 +108,8 @@ enum ResponseCode : int {
   PlayerCardCount = 14,
   LordCards = 15,
   ScoreUpdate = 16,
-  Failed = 17,
+  PlayHandSuccess = 17,
+  Failed = 18,
   ResponseCode_INT_MIN_SENTINEL_DO_NOT_USE_ = std::numeric_limits<int32_t>::min(),
   ResponseCode_INT_MAX_SENTINEL_DO_NOT_USE_ = std::numeric_limits<int32_t>::max()
 };

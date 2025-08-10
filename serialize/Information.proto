@@ -38,7 +38,8 @@ enum ResponseCode
     PlayerCardCount = 14;     // 其他玩家手牌数量信息
     LordCards = 15;
     ScoreUpdate = 16;         // 新增：分数更新消息
-    Failed = 17;
+    PlayHandSuccess = 17;
+    Failed = 18;
 }
 
 message Information

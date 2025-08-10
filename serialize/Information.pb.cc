@@ -77,7 +77,7 @@ const char descriptor_table_protodef_Information_2eproto[] PROTOBUF_SECTION_VARI
   "om\020\005\022\014\n\010GrabLord\020\006\022\r\n\tPlayAHand\020\007\022\014\n\010Gam"
   "eOver\020\010\022\014\n\010Continue\020\t\022\r\n\tLeaveRoom\020\n\022\013\n\007"
   "GoodBye\020\013\022\017\n\013ReDealCards\020\014\022\r\n\tHeartbeat\020"
-  "\r\022\022\n\016LordDetermined\020\016*\301\002\n\014ResponseCode\022\013"
+  "\r\022\022\n\016LordDetermined\020\016*\326\002\n\014ResponseCode\022\013"
   "\n\007LoginOk\020\000\022\016\n\nRegisterOk\020\001\022\014\n\010RsaFenFa\020"
   "\002\022\017\n\013AesVerifyOk\020\003\022\016\n\nJoinRoomOK\020\004\022\r\n\tSt"
   "artGame\020\005\022\020\n\014SearchRoomOK\020\006\022\r\n\tDealCards"
@@ -85,11 +85,12 @@ const char descriptor_table_protodef_Information_2eproto[] PROTOBUF_SECTION_VARI
   "\022\022\n\016OtherLeaveRoom\020\n\022\022\n\016HeartbeatReply\020\013"
   "\022\024\n\020NetworkDealCards\020\014\022\020\n\014GameEndCards\020\r"
   "\022\023\n\017PlayerCardCount\020\016\022\r\n\tLordCards\020\017\022\017\n\013"
-  "ScoreUpdate\020\020\022\n\n\006Failed\020\021b\006proto3"
+  "ScoreUpdate\020\020\022\023\n\017PlayHandSuccess\020\021\022\n\n\006Fa"
+  "iled\020\022b\006proto3"
   ;
 static ::_pbi::once_flag descriptor_table_Information_2eproto_once;
 const ::_pbi::DescriptorTable descriptor_table_Information_2eproto = {
-    false, false, 753, descriptor_table_protodef_Information_2eproto,
+    false, false, 774, descriptor_table_protodef_Information_2eproto,
     "Information.proto",
     &descriptor_table_Information_2eproto_once, nullptr, 0, 1,
     schemas, file_default_instances, TableStruct_Information_2eproto::offsets,
@@ -153,6 +154,7 @@ bool ResponseCode_IsValid(int value) {
     case 15:
     case 16:
     case 17:
+    case 18:
       return true;
     default:
       return false;

@@ -278,6 +278,21 @@ void Communication::parseRequest(Buffer* buf)
                 }
             }
 
+            Message confirmMsg;
+            confirmMsg.resCode = ResponseCode::PlayHandSuccess;
+            confirmMsg.userName = msg->userName.c_str();
+            confirmMsg.roomName = msg->roomName.c_str();
+            Codec confirmCodec(&confirmMsg);
+
+            auto players = RoomList::getInstance()->getPlayers(msg->roomName);
+            for (auto it : players)
+            {
+                if (it.first == msg->userName)
+                {
+                    it.second(confirmCodec.enCodeMsg());  // 发送给出牌玩家
+                }
+            }
+
             //先转发玩家的牌，然后再判断游戏是否结束
             resMsg.data1 = msg->data1;
             resMsg.data2 = msg->data2;
