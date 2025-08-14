@@ -19,10 +19,11 @@ struct Message
     string data1;
     string data2;
     string data3;
+    string data4;
     RequestCode reqCode;
     ResponseCode resCode;
 
-    Message() : userName(""), roomName(""), data1(""), data2(""), data3(""),
+    Message() : userName(""), roomName(""), data1(""), data2(""), data3(""), data4(""),
                 reqCode(static_cast<RequestCode>(-1)), resCode(static_cast<ResponseCode>(-1))
     {
     };

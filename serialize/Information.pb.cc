@@ -27,6 +27,7 @@ PROTOBUF_CONSTEXPR Information::Information(
   , /*decltype(_impl_.data1_)*/{&::_pbi::fixed_address_empty_string, ::_pbi::ConstantInitialized{}}
   , /*decltype(_impl_.data2_)*/{&::_pbi::fixed_address_empty_string, ::_pbi::ConstantInitialized{}}
   , /*decltype(_impl_.data3_)*/{&::_pbi::fixed_address_empty_string, ::_pbi::ConstantInitialized{}}
+  , /*decltype(_impl_.data4_)*/{&::_pbi::fixed_address_empty_string, ::_pbi::ConstantInitialized{}}
   , /*decltype(_impl_.reqcode_)*/0
   , /*decltype(_impl_.rescode_)*/0
   , /*decltype(_impl_._cached_size_)*/{}} {}
@@ -55,6 +56,7 @@ const uint32_t TableStruct_Information_2eproto::offsets[] PROTOBUF_SECTION_VARIA
   PROTOBUF_FIELD_OFFSET(::Information, _impl_.data1_),
   PROTOBUF_FIELD_OFFSET(::Information, _impl_.data2_),
   PROTOBUF_FIELD_OFFSET(::Information, _impl_.data3_),
+  PROTOBUF_FIELD_OFFSET(::Information, _impl_.data4_),
   PROTOBUF_FIELD_OFFSET(::Information, _impl_.reqcode_),
   PROTOBUF_FIELD_OFFSET(::Information, _impl_.rescode_),
 };
@@ -67,30 +69,34 @@ static const ::_pb::Message* const file_default_instances[] = {
 };
 
 const char descriptor_table_protodef_Information_2eproto[] PROTOBUF_SECTION_VARIABLE(protodesc_cold) =
-  "\n\021Information.proto\"\235\001\n\013Information\022\020\n\010u"
+  "\n\021Information.proto\"\254\001\n\013Information\022\020\n\010u"
   "sername\030\001 \001(\t\022\020\n\010roomname\030\002 \001(\t\022\r\n\005data1"
-  "\030\003 \001(\t\022\r\n\005data2\030\004 \001(\t\022\r\n\005data3\030\005 \001(\t\022\035\n\007"
-  "reqCode\030\006 \001(\0162\014.RequestCode\022\036\n\007resCode\030\007"
-  " \001(\0162\r.ResponseCode*\357\001\n\013RequestCode\022\r\n\tU"
-  "serLogin\020\000\022\014\n\010Register\020\001\022\014\n\010AesFenFa\020\002\022\014"
-  "\n\010AutoRoom\020\003\022\016\n\nManualRoom\020\004\022\016\n\nSearchRo"
-  "om\020\005\022\014\n\010GrabLord\020\006\022\r\n\tPlayAHand\020\007\022\014\n\010Gam"
-  "eOver\020\010\022\014\n\010Continue\020\t\022\r\n\tLeaveRoom\020\n\022\013\n\007"
-  "GoodBye\020\013\022\017\n\013ReDealCards\020\014\022\r\n\tHeartbeat\020"
-  "\r\022\022\n\016LordDetermined\020\016*\326\002\n\014ResponseCode\022\013"
-  "\n\007LoginOk\020\000\022\016\n\nRegisterOk\020\001\022\014\n\010RsaFenFa\020"
-  "\002\022\017\n\013AesVerifyOk\020\003\022\016\n\nJoinRoomOK\020\004\022\r\n\tSt"
-  "artGame\020\005\022\020\n\014SearchRoomOK\020\006\022\r\n\tDealCards"
-  "\020\007\022\021\n\rOtherGrabLord\020\010\022\021\n\rOtherPlayHand\020\t"
-  "\022\022\n\016OtherLeaveRoom\020\n\022\022\n\016HeartbeatReply\020\013"
-  "\022\024\n\020NetworkDealCards\020\014\022\020\n\014GameEndCards\020\r"
-  "\022\023\n\017PlayerCardCount\020\016\022\r\n\tLordCards\020\017\022\017\n\013"
-  "ScoreUpdate\020\020\022\023\n\017PlayHandSuccess\020\021\022\n\n\006Fa"
-  "iled\020\022b\006proto3"
+  "\030\003 \001(\t\022\r\n\005data2\030\004 \001(\t\022\r\n\005data3\030\005 \001(\t\022\r\n\005"
+  "data4\030\006 \001(\t\022\035\n\007reqCode\030\007 \001(\0162\014.RequestCo"
+  "de\022\036\n\007resCode\030\010 \001(\0162\r.ResponseCode*\205\002\n\013R"
+  "equestCode\022\r\n\tUserLogin\020\000\022\014\n\010Register\020\001\022"
+  "\014\n\010AesFenFa\020\002\022\014\n\010AutoRoom\020\003\022\016\n\nManualRoo"
+  "m\020\004\022\016\n\nSearchRoom\020\005\022\014\n\010GrabLord\020\006\022\r\n\tPla"
+  "yAHand\020\007\022\014\n\010GameOver\020\010\022\014\n\010Continue\020\t\022\r\n\t"
+  "LeaveRoom\020\n\022\013\n\007GoodBye\020\013\022\017\n\013ReDealCards\020"
+  "\014\022\r\n\tHeartbeat\020\r\022\022\n\016LordDetermined\020\016\022\024\n\020"
+  "ReconnectRequest\020\017*\345\003\n\014ResponseCode\022\013\n\007L"
+  "oginOk\020\000\022\016\n\nRegisterOk\020\001\022\014\n\010RsaFenFa\020\002\022\017"
+  "\n\013AesVerifyOk\020\003\022\016\n\nJoinRoomOK\020\004\022\r\n\tStart"
+  "Game\020\005\022\020\n\014SearchRoomOK\020\006\022\r\n\tDealCards\020\007\022"
+  "\021\n\rOtherGrabLord\020\010\022\021\n\rOtherPlayHand\020\t\022\022\n"
+  "\016OtherLeaveRoom\020\n\022\022\n\016HeartbeatReply\020\013\022\024\n"
+  "\020NetworkDealCards\020\014\022\020\n\014GameEndCards\020\r\022\023\n"
+  "\017PlayerCardCount\020\016\022\r\n\tLordCards\020\017\022\017\n\013Sco"
+  "reUpdate\020\020\022\023\n\017PlayHandSuccess\020\021\022\026\n\022Recon"
+  "nectSyncStart\020\022\022\024\n\020ReconnectSyncEnd\020\023\022\021\n"
+  "\rGameStateSync\020\024\022\022\n\016PlayerHandSync\020\025\022\n\n\006"
+  "Failed\020\026\022\024\n\020ReconnectSuccess\020\027\022\023\n\017Reconn"
+  "ectFailed\020\030\022\r\n\tGameEnded\020\031b\006proto3"
   ;
 static ::_pbi::once_flag descriptor_table_Information_2eproto_once;
 const ::_pbi::DescriptorTable descriptor_table_Information_2eproto = {
-    false, false, 774, descriptor_table_protodef_Information_2eproto,
+    false, false, 954, descriptor_table_protodef_Information_2eproto,
     "Information.proto",
     &descriptor_table_Information_2eproto_once, nullptr, 0, 1,
     schemas, file_default_instances, TableStruct_Information_2eproto::offsets,
@@ -124,6 +130,7 @@ bool RequestCode_IsValid(int value) {
     case 12:
     case 13:
     case 14:
+    case 15:
       return true;
     default:
       return false;
@@ -155,6 +162,13 @@ bool ResponseCode_IsValid(int value) {
     case 16:
     case 17:
     case 18:
+    case 19:
+    case 20:
+    case 21:
+    case 22:
+    case 23:
+    case 24:
+    case 25:
       return true;
     default:
       return false;
@@ -183,6 +197,7 @@ Information::Information(const Information& from)
     , decltype(_impl_.data1_){}
     , decltype(_impl_.data2_){}
     , decltype(_impl_.data3_){}
+    , decltype(_impl_.data4_){}
     , decltype(_impl_.reqcode_){}
     , decltype(_impl_.rescode_){}
     , /*decltype(_impl_._cached_size_)*/{}};
@@ -228,6 +243,14 @@ Information::Information(const Information& from)
     _this->_impl_.data3_.Set(from._internal_data3(), 
       _this->GetArenaForAllocation());
   }
+  _impl_.data4_.InitDefault();
+  #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
+    _impl_.data4_.Set("", GetArenaForAllocation());
+  #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  if (!from._internal_data4().empty()) {
+    _this->_impl_.data4_.Set(from._internal_data4(), 
+      _this->GetArenaForAllocation());
+  }
   ::memcpy(&_impl_.reqcode_, &from._impl_.reqcode_,
     static_cast<size_t>(reinterpret_cast<char*>(&_impl_.rescode_) -
     reinterpret_cast<char*>(&_impl_.reqcode_)) + sizeof(_impl_.rescode_));
@@ -244,6 +267,7 @@ inline void Information::SharedCtor(
     , decltype(_impl_.data1_){}
     , decltype(_impl_.data2_){}
     , decltype(_impl_.data3_){}
+    , decltype(_impl_.data4_){}
     , decltype(_impl_.reqcode_){0}
     , decltype(_impl_.rescode_){0}
     , /*decltype(_impl_._cached_size_)*/{}
@@ -268,6 +292,10 @@ inline void Information::SharedCtor(
   #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
     _impl_.data3_.Set("", GetArenaForAllocation());
   #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  _impl_.data4_.InitDefault();
+  #ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
+    _impl_.data4_.Set("", GetArenaForAllocation());
+  #endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
 }
 
 Information::~Information() {
@@ -286,6 +314,7 @@ inline void Information::SharedDtor() {
   _impl_.data1_.Destroy();
   _impl_.data2_.Destroy();
   _impl_.data3_.Destroy();
+  _impl_.data4_.Destroy();
 }
 
 void Information::SetCachedSize(int size) const {
@@ -303,6 +332,7 @@ void Information::Clear() {
   _impl_.data1_.ClearToEmpty();
   _impl_.data2_.ClearToEmpty();
   _impl_.data3_.ClearToEmpty();
+  _impl_.data4_.ClearToEmpty();
   ::memset(&_impl_.reqcode_, 0, static_cast<size_t>(
       reinterpret_cast<char*>(&_impl_.rescode_) -
       reinterpret_cast<char*>(&_impl_.reqcode_)) + sizeof(_impl_.rescode_));
@@ -365,18 +395,28 @@ const char* Information::_InternalParse(const char* ptr, ::_pbi::ParseContext* c
         } else
           goto handle_unusual;
         continue;
-      // .RequestCode reqCode = 6;
+      // string data4 = 6;
       case 6:
-        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 48)) {
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 50)) {
+          auto str = _internal_mutable_data4();
+          ptr = ::_pbi::InlineGreedyStringParser(str, ptr, ctx);
+          CHK_(ptr);
+          CHK_(::_pbi::VerifyUTF8(str, "Information.data4"));
+        } else
+          goto handle_unusual;
+        continue;
+      // .RequestCode reqCode = 7;
+      case 7:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 56)) {
           uint64_t val = ::PROTOBUF_NAMESPACE_ID::internal::ReadVarint64(&ptr);
           CHK_(ptr);
           _internal_set_reqcode(static_cast<::RequestCode>(val));
         } else
           goto handle_unusual;
         continue;
-      // .ResponseCode resCode = 7;
-      case 7:
-        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 56)) {
+      // .ResponseCode resCode = 8;
+      case 8:
+        if (PROTOBUF_PREDICT_TRUE(static_cast<uint8_t>(tag) == 64)) {
           uint64_t val = ::PROTOBUF_NAMESPACE_ID::internal::ReadVarint64(&ptr);
           CHK_(ptr);
           _internal_set_rescode(static_cast<::ResponseCode>(val));
@@ -462,18 +502,28 @@ uint8_t* Information::_InternalSerialize(
         5, this->_internal_data3(), target);
   }
 
-  // .RequestCode reqCode = 6;
+  // string data4 = 6;
+  if (!this->_internal_data4().empty()) {
+    ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::VerifyUtf8String(
+      this->_internal_data4().data(), static_cast<int>(this->_internal_data4().length()),
+      ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::SERIALIZE,
+      "Information.data4");
+    target = stream->WriteStringMaybeAliased(
+        6, this->_internal_data4(), target);
+  }
+
+  // .RequestCode reqCode = 7;
   if (this->_internal_reqcode() != 0) {
     target = stream->EnsureSpace(target);
     target = ::_pbi::WireFormatLite::WriteEnumToArray(
-      6, this->_internal_reqcode(), target);
+      7, this->_internal_reqcode(), target);
   }
 
-  // .ResponseCode resCode = 7;
+  // .ResponseCode resCode = 8;
   if (this->_internal_rescode() != 0) {
     target = stream->EnsureSpace(target);
     target = ::_pbi::WireFormatLite::WriteEnumToArray(
-      7, this->_internal_rescode(), target);
+      8, this->_internal_rescode(), target);
   }
 
   if (PROTOBUF_PREDICT_FALSE(_internal_metadata_.have_unknown_fields())) {
@@ -527,13 +577,20 @@ size_t Information::ByteSizeLong() const {
         this->_internal_data3());
   }
 
-  // .RequestCode reqCode = 6;
+  // string data4 = 6;
+  if (!this->_internal_data4().empty()) {
+    total_size += 1 +
+      ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::StringSize(
+        this->_internal_data4());
+  }
+
+  // .RequestCode reqCode = 7;
   if (this->_internal_reqcode() != 0) {
     total_size += 1 +
       ::_pbi::WireFormatLite::EnumSize(this->_internal_reqcode());
   }
 
-  // .ResponseCode resCode = 7;
+  // .ResponseCode resCode = 8;
   if (this->_internal_rescode() != 0) {
     total_size += 1 +
       ::_pbi::WireFormatLite::EnumSize(this->_internal_rescode());
@@ -571,6 +628,9 @@ void Information::MergeImpl(::PROTOBUF_NAMESPACE_ID::Message& to_msg, const ::PR
   }
   if (!from._internal_data3().empty()) {
     _this->_internal_set_data3(from._internal_data3());
+  }
+  if (!from._internal_data4().empty()) {
+    _this->_internal_set_data4(from._internal_data4());
   }
   if (from._internal_reqcode() != 0) {
     _this->_internal_set_reqcode(from._internal_reqcode());
@@ -616,6 +676,10 @@ void Information::InternalSwap(Information* other) {
   ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::InternalSwap(
       &_impl_.data3_, lhs_arena,
       &other->_impl_.data3_, rhs_arena
+  );
+  ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr::InternalSwap(
+      &_impl_.data4_, lhs_arena,
+      &other->_impl_.data4_, rhs_arena
   );
   ::PROTOBUF_NAMESPACE_ID::internal::memswap<
       PROTOBUF_FIELD_OFFSET(Information, _impl_.rescode_)

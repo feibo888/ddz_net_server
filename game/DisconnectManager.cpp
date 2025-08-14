@@ -109,10 +109,28 @@ void DisconnectManager::executeAIPlay(const std::string& roomName, const std::st
             // 从Redis中移除这张牌
             m_redis->removeCardFromPlayer(roomName, userName, playData);
 
-            // **关键修复：AI出牌后更新游戏控制权**
+            // **关键修复：AI出牌后更新游戏控制权和控牌数据**
             m_redis->setGameState(roomName, "game_controller", userName);
-
-            std::cout << "AI代替断线玩家 " << userName << " 出牌（第一手）：" << playData << std::endl;
+            
+            // **新增：保存AI出牌的控牌数据（与客户端格式一致）**
+            // 构造与客户端相同的二进制格式数据
+            std::string binaryCardData;
+            binaryCardData.resize(2 * sizeof(int));
+            
+            // 写入suit（转换为网络字节序）
+            int networkSuit = htonl(playedCard.first);
+            memcpy(&binaryCardData[0], &networkSuit, sizeof(int));
+            
+            // 写入point（转换为网络字节序） 
+            int networkPoint = htonl(playedCard.second);
+            memcpy(&binaryCardData[sizeof(int)], &networkPoint, sizeof(int));
+            
+            // 保存控牌数据和数量
+            m_redis->setGameState(roomName, "pend_cards", binaryCardData);
+            m_redis->setGameState(roomName, "pend_count", "1");
+            
+            std::cout << "AI代替断线玩家 " << userName << " 出牌（第一手）：" << playData 
+                      << " 已保存控牌数据" << std::endl;
 
             if (Communication::checkGameEndAndHandle(roomName, userName)) {
                 std::cout << "AI出牌触发游戏结束，完整流程已处理" << std::endl;
@@ -122,8 +140,8 @@ void DisconnectManager::executeAIPlay(const std::string& roomName, const std::st
         } else {
             // 跟牌：直接过牌
             playData = "";
-            std::cout << "AI代替断线玩家 " << userName << " 过牌" << std::endl;
-            // 过牌时不改变game_controller
+            std::cout << "AI代替断线玩家 " << userName << " 过牌（不更新控牌数据）" << std::endl;
+            // 过牌时不改变game_controller和控牌数据
         }
 
         // 发送AI出牌消息
@@ -396,5 +414,16 @@ void DisconnectManager::cleanupRedisConnection() {
         }
         m_redis = nullptr;
         m_redisInitialized = false;
+    }
+}
+
+void DisconnectManager::removePlayerFromDisconnectList(const std::string& roomName, const std::string& userName) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    std::string key = roomName + "_" + userName;
+    auto erased = m_disconnectedPlayers.erase(key);
+
+    if (erased > 0) {
+        std::cout << "从断线列表移除玩家：" << userName << " 房间：" << roomName << std::endl;
     }
 }

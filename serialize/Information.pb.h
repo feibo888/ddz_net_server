@@ -68,12 +68,13 @@ enum RequestCode : int {
   ReDealCards = 12,
   Heartbeat = 13,
   LordDetermined = 14,
+  ReconnectRequest = 15,
   RequestCode_INT_MIN_SENTINEL_DO_NOT_USE_ = std::numeric_limits<int32_t>::min(),
   RequestCode_INT_MAX_SENTINEL_DO_NOT_USE_ = std::numeric_limits<int32_t>::max()
 };
 bool RequestCode_IsValid(int value);
 constexpr RequestCode RequestCode_MIN = UserLogin;
-constexpr RequestCode RequestCode_MAX = LordDetermined;
+constexpr RequestCode RequestCode_MAX = ReconnectRequest;
 constexpr int RequestCode_ARRAYSIZE = RequestCode_MAX + 1;
 
 const ::PROTOBUF_NAMESPACE_ID::EnumDescriptor* RequestCode_descriptor();
@@ -109,13 +110,20 @@ enum ResponseCode : int {
   LordCards = 15,
   ScoreUpdate = 16,
   PlayHandSuccess = 17,
-  Failed = 18,
+  ReconnectSyncStart = 18,
+  ReconnectSyncEnd = 19,
+  GameStateSync = 20,
+  PlayerHandSync = 21,
+  Failed = 22,
+  ReconnectSuccess = 23,
+  ReconnectFailed = 24,
+  GameEnded = 25,
   ResponseCode_INT_MIN_SENTINEL_DO_NOT_USE_ = std::numeric_limits<int32_t>::min(),
   ResponseCode_INT_MAX_SENTINEL_DO_NOT_USE_ = std::numeric_limits<int32_t>::max()
 };
 bool ResponseCode_IsValid(int value);
 constexpr ResponseCode ResponseCode_MIN = LoginOk;
-constexpr ResponseCode ResponseCode_MAX = Failed;
+constexpr ResponseCode ResponseCode_MAX = GameEnded;
 constexpr int ResponseCode_ARRAYSIZE = ResponseCode_MAX + 1;
 
 const ::PROTOBUF_NAMESPACE_ID::EnumDescriptor* ResponseCode_descriptor();
@@ -260,8 +268,9 @@ class Information final :
     kData1FieldNumber = 3,
     kData2FieldNumber = 4,
     kData3FieldNumber = 5,
-    kReqCodeFieldNumber = 6,
-    kResCodeFieldNumber = 7,
+    kData4FieldNumber = 6,
+    kReqCodeFieldNumber = 7,
+    kResCodeFieldNumber = 8,
   };
   // string username = 1;
   void clear_username();
@@ -333,7 +342,21 @@ class Information final :
   std::string* _internal_mutable_data3();
   public:
 
-  // .RequestCode reqCode = 6;
+  // string data4 = 6;
+  void clear_data4();
+  const std::string& data4() const;
+  template <typename ArgT0 = const std::string&, typename... ArgT>
+  void set_data4(ArgT0&& arg0, ArgT... args);
+  std::string* mutable_data4();
+  PROTOBUF_NODISCARD std::string* release_data4();
+  void set_allocated_data4(std::string* data4);
+  private:
+  const std::string& _internal_data4() const;
+  inline PROTOBUF_ALWAYS_INLINE void _internal_set_data4(const std::string& value);
+  std::string* _internal_mutable_data4();
+  public:
+
+  // .RequestCode reqCode = 7;
   void clear_reqcode();
   ::RequestCode reqcode() const;
   void set_reqcode(::RequestCode value);
@@ -342,7 +365,7 @@ class Information final :
   void _internal_set_reqcode(::RequestCode value);
   public:
 
-  // .ResponseCode resCode = 7;
+  // .ResponseCode resCode = 8;
   void clear_rescode();
   ::ResponseCode rescode() const;
   void set_rescode(::ResponseCode value);
@@ -364,6 +387,7 @@ class Information final :
     ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr data1_;
     ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr data2_;
     ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr data3_;
+    ::PROTOBUF_NAMESPACE_ID::internal::ArenaStringPtr data4_;
     int reqcode_;
     int rescode_;
     mutable ::PROTOBUF_NAMESPACE_ID::internal::CachedSize _cached_size_;
@@ -632,7 +656,57 @@ inline void Information::set_allocated_data3(std::string* data3) {
   // @@protoc_insertion_point(field_set_allocated:Information.data3)
 }
 
-// .RequestCode reqCode = 6;
+// string data4 = 6;
+inline void Information::clear_data4() {
+  _impl_.data4_.ClearToEmpty();
+}
+inline const std::string& Information::data4() const {
+  // @@protoc_insertion_point(field_get:Information.data4)
+  return _internal_data4();
+}
+template <typename ArgT0, typename... ArgT>
+inline PROTOBUF_ALWAYS_INLINE
+void Information::set_data4(ArgT0&& arg0, ArgT... args) {
+ 
+ _impl_.data4_.Set(static_cast<ArgT0 &&>(arg0), args..., GetArenaForAllocation());
+  // @@protoc_insertion_point(field_set:Information.data4)
+}
+inline std::string* Information::mutable_data4() {
+  std::string* _s = _internal_mutable_data4();
+  // @@protoc_insertion_point(field_mutable:Information.data4)
+  return _s;
+}
+inline const std::string& Information::_internal_data4() const {
+  return _impl_.data4_.Get();
+}
+inline void Information::_internal_set_data4(const std::string& value) {
+  
+  _impl_.data4_.Set(value, GetArenaForAllocation());
+}
+inline std::string* Information::_internal_mutable_data4() {
+  
+  return _impl_.data4_.Mutable(GetArenaForAllocation());
+}
+inline std::string* Information::release_data4() {
+  // @@protoc_insertion_point(field_release:Information.data4)
+  return _impl_.data4_.Release();
+}
+inline void Information::set_allocated_data4(std::string* data4) {
+  if (data4 != nullptr) {
+    
+  } else {
+    
+  }
+  _impl_.data4_.SetAllocated(data4, GetArenaForAllocation());
+#ifdef PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  if (_impl_.data4_.IsDefault()) {
+    _impl_.data4_.Set("", GetArenaForAllocation());
+  }
+#endif // PROTOBUF_FORCE_COPY_DEFAULT_STRING
+  // @@protoc_insertion_point(field_set_allocated:Information.data4)
+}
+
+// .RequestCode reqCode = 7;
 inline void Information::clear_reqcode() {
   _impl_.reqcode_ = 0;
 }
@@ -652,7 +726,7 @@ inline void Information::set_reqcode(::RequestCode value) {
   // @@protoc_insertion_point(field_set:Information.reqCode)
 }
 
-// .ResponseCode resCode = 7;
+// .ResponseCode resCode = 8;
 inline void Information::clear_rescode() {
   _impl_.rescode_ = 0;
 }

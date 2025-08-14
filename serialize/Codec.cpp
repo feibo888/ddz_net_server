@@ -31,6 +31,7 @@ shared_ptr<Message> Codec::deCodeMsg()
     msg->data1 = m_obj.data1();
     msg->data2 = m_obj.data2();
     msg->data3 = m_obj.data3();
+    msg->data4 = m_obj.data4();
     msg->reqCode = m_obj.reqcode();
     msg->resCode = m_obj.rescode();
 
@@ -48,6 +49,7 @@ void Codec::reload(Message *msg)
     m_obj.set_data1(msg->data1);
     m_obj.set_data2(msg->data2);
     m_obj.set_data3(msg->data3);
+    m_obj.set_data4(msg->data4);
     m_obj.set_reqcode(msg->reqCode);
     m_obj.set_rescode(msg->resCode);
 }

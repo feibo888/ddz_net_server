@@ -8,6 +8,7 @@
 #include <random>
 #include <thread>
 #include <chrono>
+#include <iostream>
 
 
 Room::~Room()
@@ -560,4 +561,76 @@ void Room::setGamePlayerOrder(const std::string& roomName, const std::string& or
 
 std::string Room::getGamePlayerOrder(const std::string& roomName) {
     return hget(roomName + "_game_order", "players");
+}
+
+void Room::generateReconnectToken(const std::string& roomName, const std::string& userName) {
+    std::string tokenKey = "reconnect_token:" + roomName + ":" + userName;
+    std::string tokenValue = generateLockValue(); // 复用现有的唯一ID生成方法
+
+    // 设置token，有效期30分钟（1800秒）
+    m_redis->setex(tokenKey, 1800, tokenValue);
+
+    std::cout << "为玩家 " << userName << " 生成重连token，房间：" << roomName 
+              << " key: " << tokenKey << " value: " << tokenValue << std::endl;
+}
+
+bool Room::validateReconnectToken(const std::string& roomName, const std::string& userName) {
+    std::string tokenKey = "reconnect_token:" + roomName + ":" + userName;
+
+    try {
+        auto value = m_redis->get(tokenKey);
+        bool isValid = value.has_value() && !value->empty();
+
+        if (isValid) {
+            std::cout << "重连token验证成功：" << userName << " 房间：" << roomName 
+                      << " key: " << tokenKey << " value: " << *value << std::endl;
+        } else {
+            std::cout << "重连token验证失败：" << userName << " 房间：" << roomName 
+                      << " key: " << tokenKey << " (token不存在或已过期)" << std::endl;
+            
+            // 调试：检查是否真的不存在
+            auto debugValue = m_redis->get(tokenKey);
+            std::cout << "调试：直接查询token结果 has_value=" 
+                      << (debugValue.has_value() ? "true" : "false");
+            if (debugValue.has_value()) {
+                std::cout << " value=" << *debugValue;
+            }
+            std::cout << std::endl;
+        }
+
+        return isValid;
+    } catch (const std::exception& e) {
+        std::cout << "重连token验证异常：" << e.what() << std::endl;
+        return false;
+    }
+}
+
+void Room::removeReconnectToken(const std::string& roomName, const std::string& userName) {
+    std::string tokenKey = "reconnect_token:" + roomName + ":" + userName;
+    m_redis->del(tokenKey);
+
+    std::cout << "删除重连token：" << userName << " 房间：" << roomName << std::endl;
+}
+
+void Room::removeAllReconnectTokens(const std::string& roomName) {
+    // 删除房间所有重连token
+    std::string pattern = "reconnect_token:" + roomName + ":*";
+
+    try {
+        std::vector<std::string> keys;
+        m_redis->keys(pattern, std::back_inserter(keys));
+
+        if (!keys.empty()) {
+            m_redis->del(keys.begin(), keys.end());
+            std::cout << "删除房间 " << roomName << " 的所有重连token，共 " << keys.size() << " 个" << std::endl;
+        }
+    } catch (const std::exception& e) {
+        std::cout << "删除房间重连token异常：" << e.what() << std::endl;
+    }
+}
+
+bool Room::isGameActive(const std::string& roomName) {
+    // 检查游戏阶段是否仍在进行
+    std::string gamePhase = getGameState(roomName, "game_phase");
+    return !gamePhase.empty() && gamePhase != "waiting" && gamePhase != "ended";
 }

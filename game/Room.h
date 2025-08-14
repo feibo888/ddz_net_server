@@ -87,6 +87,15 @@ public:
       void setGamePlayerOrder(const std::string& roomName, const std::string& orderData);
       std::string getGamePlayerOrder(const std::string& roomName);
 
+      // 重连Token管理方法
+      void generateReconnectToken(const std::string& roomName, const std::string& userName);
+      bool validateReconnectToken(const std::string& roomName, const std::string& userName);
+      void removeReconnectToken(const std::string& roomName, const std::string& userName);
+      void removeAllReconnectTokens(const std::string& roomName);
+
+      // 检查游戏是否仍在进行
+      bool isGameActive(const std::string& roomName);
+
 private:
       sw::redis::Redis* m_redis;
       const std::string OnePlayer = "OnePlayer";

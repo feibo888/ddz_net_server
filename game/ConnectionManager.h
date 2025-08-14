@@ -13,6 +13,8 @@
 #include <thread>
 #include <atomic>
 #include "Communication.h"
+#include "MysqlConn.h"
+#include "JsonParse.h"
 
 class Communication;
 
@@ -44,20 +46,25 @@ public:
     std::vector<std::string> getTimeoutConnections();
     void handleTimeoutConnection(const std::string& connectionId);
 
+    // 用户状态管理
+    void updateUserLoginStatus(const std::string& userName, int status);
+
 private:
-    ConnectionManager() = default;
+    ConnectionManager();
     ~ConnectionManager();
 
     void heartbeatCheckerThread();
+    void initMysqlConnection();
 
     std::unordered_map<std::string, ConnectionInfo> m_connections;
     std::mutex m_mutex;
     std::atomic<bool> m_running{false};
     std::thread m_checkerThread;
+    MysqlConn* m_mysql = nullptr;
 
     // 配置参数
-    static const int HEARTBEAT_TIMEOUT_SECONDS = 30;  // 90秒超时
-    static const int CHECK_INTERVAL_SECONDS = 10;     // 10秒检查一次
+    static const int HEARTBEAT_TIMEOUT_SECONDS = 10;  // 90秒超时
+    static const int CHECK_INTERVAL_SECONDS = 5;     // 10秒检查一次
 };
 
 

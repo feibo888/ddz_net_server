@@ -15,8 +15,44 @@ ConnectionManager* ConnectionManager::getInstance() {
     return &instance;
 }
 
+ConnectionManager::ConnectionManager() {
+    initMysqlConnection();
+}
+
 ConnectionManager::~ConnectionManager() {
+    if (m_mysql) {
+        delete m_mysql;
+        m_mysql = nullptr;
+    }
     stopHeartbeatChecker();
+}
+
+void ConnectionManager::initMysqlConnection() {
+    try {
+        // 使用JsonParse读取数据库配置
+        JsonParse jsonParse;
+        auto dbInfo = jsonParse.getDBInfo(JsonParse::DBType::Mysql);
+
+        m_mysql = new MysqlConn;
+        // 参数顺序：user, password, dbname, ip, port
+        if (!m_mysql || !m_mysql->connect(dbInfo->user, dbInfo->password, dbInfo->dbname,
+                                         dbInfo->ip, dbInfo->port)) {
+            std::cout << "ConnectionManager MySQL连接初始化失败" << std::endl;
+            if (m_mysql) {
+                delete m_mysql;
+                m_mysql = nullptr;
+            }
+         } else {
+             std::cout << "ConnectionManager MySQL连接初始化成功，数据库：" << dbInfo->dbname
+                       << "，服务器：" << dbInfo->ip << ":" << dbInfo->port << std::endl;
+         }
+    } catch (const std::exception& e) {
+        std::cout << "ConnectionManager MySQL初始化异常：" << e.what() << std::endl;
+        if (m_mysql) {
+            delete m_mysql;
+            m_mysql = nullptr;
+        }
+    }
 }
 
 void ConnectionManager::registerConnection(const std::string& connectionId,
@@ -136,9 +172,18 @@ void ConnectionManager::handleTimeoutConnection(const std::string& connectionId)
     // 标记为非活跃
     it->second.isActive = false;
 
+    // **更新用户登录状态为0（离线）**
+    updateUserLoginStatus(info.userName, 0);
+
     // 触发断线处理
     if (!info.userName.empty() && !info.roomName.empty()) {
         DisconnectManager::getInstance()->recordPlayerDisconnect(info.roomName, info.userName);
+
+        Room redis;
+        if (redis.initEnvironment()) {
+            redis.generateReconnectToken(info.roomName, info.userName);
+        }
+
         std::cout << "已将用户 " << info.userName << " 标记为断线" << std::endl;
     }
 
@@ -151,5 +196,39 @@ void ConnectionManager::handleTimeoutConnection(const std::string& connectionId)
         } catch (const std::exception& e) {
             std::cout << "清理连接时异常：" << e.what() << std::endl;
         }
+    }
+}
+
+void ConnectionManager::updateUserLoginStatus(const std::string& userName, int status) {
+    if (!m_mysql || userName.empty()) {
+        std::cout << "无法更新用户登录状态：MySQL连接无效或用户名为空" << std::endl;
+        return;
+    }
+
+    try {
+        std::string sql = "update information set status = ? where name = ?";
+        if (m_mysql->prepare(sql)) {
+            MYSQL_BIND bind[2] = {0};
+
+            // 绑定status参数
+            bind[0].buffer_type = MYSQL_TYPE_LONG;
+            bind[0].buffer = &status;
+            bind[0].buffer_length = sizeof(status);
+
+            // 绑定userName参数
+            bind[1].buffer_type = MYSQL_TYPE_STRING;
+            bind[1].buffer = (void*)userName.c_str();
+            bind[1].buffer_length = userName.size();
+
+            m_mysql->bindParam(bind);
+            m_mysql->execute();
+            m_mysql->closeStmt();
+
+            std::cout << "已更新用户 " << userName << " 的登录状态为 " << status << std::endl;
+        } else {
+            std::cout << "更新用户登录状态失败：SQL准备失败" << std::endl;
+        }
+    } catch (const std::exception& e) {
+        std::cout << "更新用户登录状态异常：" << e.what() << std::endl;
     }
 }

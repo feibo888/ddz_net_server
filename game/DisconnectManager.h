@@ -47,6 +47,10 @@ public:
 
     // 执行AI出牌逻辑（基于Redis中的真实手牌数据）
     void executeAIPlay(const std::string& roomName, const std::string& userName);
+
+    // 从断线列表中移除玩家（重连成功时调用）
+    void removePlayerFromDisconnectList(const std::string& roomName, const std::string& userName);
+
 private:
     DisconnectManager() = default;
     ~DisconnectManager();

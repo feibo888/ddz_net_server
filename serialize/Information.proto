@@ -17,6 +17,7 @@ enum RequestCode
     ReDealCards = 12;
     Heartbeat = 13;
     LordDetermined = 14;
+    ReconnectRequest = 15;     // 重连请求
 }
 
 enum ResponseCode
@@ -39,7 +40,14 @@ enum ResponseCode
     LordCards = 15;
     ScoreUpdate = 16;         // 新增：分数更新消息
     PlayHandSuccess = 17;
-    Failed = 18;
+    ReconnectSyncStart = 18;  // 新增：重连同步开始
+    ReconnectSyncEnd = 19;    // 新增：重连同步结束
+    GameStateSync = 20;       // 新增：游戏状态同步
+    PlayerHandSync = 21;      // 新增：玩家手牌同步
+    Failed = 22;
+    ReconnectSuccess = 23;     // 重连成功
+    ReconnectFailed = 24;      // 重连失败
+    GameEnded = 25;           // 游戏已结束
 }
 
 message Information
@@ -49,6 +57,7 @@ message Information
     string data1 = 3;
     string data2 = 4;
     string data3 = 5;
-    RequestCode reqCode = 6;
-    ResponseCode resCode = 7;
+    string data4 = 6;
+    RequestCode reqCode = 7;
+    ResponseCode resCode = 8;
 }

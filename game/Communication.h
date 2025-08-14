@@ -109,8 +109,17 @@ public:
     // 新增：AI可调用的游戏结束检测方法
     static bool checkGameEndAndHandle(const std::string& roomName, const std::string& userName);
     bool checkAndHandleGameEnd(const std::string& roomName, const std::string& userName);
+    // 新增：专门用于重连场景的游戏结束检查，不会发送消息给其他玩家
+    bool checkGameEndForReconnect(const std::string& roomName, const std::string& userName);
+
+    void handleReconnectSync(const std::string& roomName, const std::string& userName);
+    int countCards(const std::string& cardsData);
 
     void handleDisconnect();
+    void handleReconnectRequest(Message* reqMsg, Message& resMsg);
+
+    // 新增：牌数据格式转换函数
+    std::string convertCardsToQDataStream(const std::string& cardsStr, int& cardCount);
 
 private:
     sendCallback m_sendCallback;

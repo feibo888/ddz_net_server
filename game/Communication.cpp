@@ -34,10 +34,37 @@ Communication* Communication::getInstance() {
 bool Communication::checkAndHandleGameEnd(const std::string& roomName, const std::string& userName) {
     if (!m_redis) return false;
 
-    // 检查玩家手牌是否为空
-    std::string remainingCards = m_redis->getPlayerCards(roomName, userName);
-    if (remainingCards.empty() || remainingCards == "#") {
-        std::cout << "检测到游戏结束：玩家 " << userName << " 手牌为空" << std::endl;
+    // 更严格的游戏结束检查：不能仅基于单个玩家的手牌
+    // 1. 首先检查游戏状态
+    std::string gamePhase = m_redis->getGameState(roomName, "game_phase");
+    if (gamePhase.empty()) {
+        std::cout << "游戏状态为空，可能游戏尚未开始或已结束" << std::endl;
+        return false;  // 游戏可能还没开始，不应该结束
+    }
+
+    if (gamePhase == "ended") {
+        std::cout << "游戏状态已标记为结束" << std::endl;
+        return true;   // 游戏已正式结束
+    }
+
+    // 2. 检查房间中是否有玩家真正胜利（手牌为空）
+    auto players = RoomList::getInstance()->getPlayers(roomName);
+    bool hasWinner = false;
+    std::string winner;
+
+    for (const auto& player : players) {
+        std::string playerCards = m_redis->getPlayerCards(roomName, player.first);
+        if (playerCards.empty() || playerCards == "#") {
+            hasWinner = true;
+            winner = player.first;
+            std::cout << "发现胜利玩家：" << winner << " (手牌为空)" << std::endl;
+            break;
+        }
+    }
+
+    // 只有确实发现胜利玩家才执行游戏结束流程
+    if (hasWinner) {
+        std::cout << "检测到游戏结束：玩家 " << winner << " 获胜" << std::endl;
 
         // 执行完整的游戏结束流程
         try {
@@ -45,18 +72,21 @@ bool Communication::checkAndHandleGameEnd(const std::string& roomName, const std
             TurnTimeoutManager::getInstance()->clearRoomTimeouts(roomName);
             
             // 3. 发送剩余手牌信息和获胜者信息给所有客户端
-            sendGameEndCardsWithWinner(roomName, userName);
+            sendGameEndCardsWithWinner(roomName, winner);
 
             // 1. 计算和更新分数 - 这会发送分数更新消息给客户端
-            calculateAndUpdateGameScores(roomName, userName);
+            calculateAndUpdateGameScores(roomName, winner);
 
             // 2. 清理游戏状态
             GameStateManager::getInstance()->endGame(roomName);
 
-            // 4. 清理断线管理器的数据
+            // 4. 清理所有重连token
+            m_redis->removeAllReconnectTokens(roomName);
+
+            // 5. 清理断线管理器的数据
             DisconnectManager::getInstance()->cleanupGame(roomName);
 
-            std::cout << "游戏结束处理完成，房间：" << roomName << "，获胜者：" << userName << std::endl;
+            std::cout << "游戏结束处理完成，房间：" << roomName << "，获胜者：" << winner << std::endl;
             return true;
 
         } catch (const std::exception& e) {
@@ -64,6 +94,8 @@ bool Communication::checkAndHandleGameEnd(const std::string& roomName, const std
             return false;
         }
     }
+
+    std::cout << "游戏仍在进行中，房间：" << roomName << std::endl;
     return false;
 }
 
@@ -163,6 +195,25 @@ Communication::~Communication()
 {
     // 注销连接
     ConnectionManager::getInstance()->unregisterConnection(m_connectionId);
+
+    // **连接断开时，更新用户登录状态为0（离线）**
+    if (!m_currentUserName.empty() && m_mysql) {
+        try {
+            std::string sql = "update information set status = 0 where name = ?";
+            if (m_mysql->prepare(sql)) {
+                MYSQL_BIND bind[1] = {0};
+                bind[0].buffer_type = MYSQL_TYPE_STRING;
+                bind[0].buffer = (void*)m_currentUserName.c_str();
+                bind[0].buffer_length = m_currentUserName.size();
+                m_mysql->bindParam(bind);
+                m_mysql->execute();
+                m_mysql->closeStmt();
+                std::cout << "连接断开时已将用户 " << m_currentUserName << " 的登录状态更新为0" << std::endl;
+            }
+        } catch (const std::exception& e) {
+            std::cout << "更新用户登录状态异常：" << e.what() << std::endl;
+        }
+    }
 
     if (!m_currentRoomName.empty() && !m_currentUserName.empty()) {
         DisconnectManager::getInstance()->recordPlayerDisconnect(m_currentRoomName, m_currentUserName);
@@ -273,15 +324,23 @@ void Communication::parseRequest(Buffer* buf)
                 // 检查是否为过牌：data1为"0"或空表示过牌
                 std::string cardCount = msg->data1;
                 if (cardCount != "0" && !cardCount.empty() && !msg->data2.empty()) {
-                    // 不是过牌，更新控牌玩家
+                    // 不是过牌，更新控牌玩家和保存当前出牌数据
                     m_redis->setGameState(msg->roomName, "game_controller", msg->userName);
+                    m_redis->setGameState(msg->roomName, "pend_cards", msg->data2);  // 保存当前出牌数据
+                    m_redis->setGameState(msg->roomName, "pend_count", cardCount); // 保存当前出牌数量
+                    
+                    std::cout << "保存控牌数据：控牌玩家=" << msg->userName 
+                              << ", 出牌数据=" << msg->data2 << std::endl;
+                } else {
+                    // 过牌时不更新控牌玩家和出牌数据
+                    std::cout << "玩家 " << msg->userName << " 选择过牌" << std::endl;
                 }
             }
 
             Message confirmMsg;
             confirmMsg.resCode = ResponseCode::PlayHandSuccess;
-            confirmMsg.userName = msg->userName.c_str();
-            confirmMsg.roomName = msg->roomName.c_str();
+            confirmMsg.userName = msg->userName;
+            confirmMsg.roomName = msg->roomName;
             Codec confirmCodec(&confirmMsg);
 
             auto players = RoomList::getInstance()->getPlayers(msg->roomName);
@@ -372,6 +431,16 @@ void Communication::parseRequest(Buffer* buf)
             TurnTimeoutManager::getInstance()->clearRoomTimeouts(msg->roomName);
 
             realFunc = nullptr;
+            break;
+        }
+        case RequestCode::ReconnectRequest:
+        {
+            handleReconnectRequest(msg.get(), resMsg);
+            // 重连成功后需要同步数据，使用现有的handleReconnectSync
+            if (resMsg.resCode == ResponseCode::ReconnectSuccess) {
+                realFunc = bind(&Communication::handleReconnectSync, this,
+                               string(msg->roomName), string(msg->userName));
+            }
             break;
         }
         case RequestCode::Continue:
@@ -1240,6 +1309,8 @@ void Communication::sendLordDeterminedToAllPlayers(const std::string& roomName, 
             m_redis->setGameState(roomName, "lord", lordName);
             m_redis->setGameState(roomName, "current_turn", lordName);
             m_redis->setGameState(roomName, "game_controller", "");
+            m_redis->setGameState(roomName, "pend_cards", "");  // 游戏开始时清空控牌数据
+            m_redis->setGameState(roomName, "pend_count", "");
             m_redis->setGameState(roomName, "game_phase", "playing");
             std::cout << "地主 " << lordName << " 开始出牌" << std::endl;
         }
@@ -1848,8 +1919,8 @@ void Communication::sendLordCardsToAllPlayers(const std::string& roomName,
     // 构造地主底牌消息
     Message lordMsg;
     lordMsg.resCode = ResponseCode::LordCards;  // 需要新增这个响应码
-    lordMsg.userName = lordName.c_str();
-    lordMsg.roomName = roomName.c_str();
+    lordMsg.userName = lordName;
+    lordMsg.roomName = roomName;
     lordMsg.data1 = bottomCards;  // 3张底牌数据
 
     // 发送给所有玩家
@@ -1863,4 +1934,323 @@ void Communication::sendLordCardsToAllPlayers(const std::string& roomName,
     std::cout << "已向房间 " << roomName << " 所有玩家发送地主底牌信息" << std::endl;
 }
 
+void Communication::handleReconnectSync(const std::string& roomName, const std::string& userName) {
+    try {
+        std::cout << "开始处理重连同步：" << userName << " 房间：" << roomName << std::endl;
 
+        // 获取房间玩家列表
+        auto players = RoomList::getInstance()->getPlayers(roomName);
+
+        // 查找重连的玩家
+        auto playerIt = players.find(userName);
+        if (playerIt == players.end()) {
+            std::cout << "错误：找不到重连玩家 " << userName << std::endl;
+            return;
+        }
+
+        // **步骤1：发送重连同步开始信号**
+        Message syncStartMsg;
+        syncStartMsg.resCode = ResponseCode::ReconnectSyncStart;
+        syncStartMsg.userName = userName;
+        syncStartMsg.roomName = roomName;
+        Codec startCodec(&syncStartMsg);
+        playerIt->second(startCodec.enCodeMsg());  // 只发送给重连玩家
+
+        // 短暂等待，确保客户端进入重连模式
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+        // **步骤2：发送当前游戏状态快照（核心改进）**
+        if (m_redis) {
+            std::string gamePhase = m_redis->getGameState(roomName, "game_phase");
+            if (!gamePhase.empty() && gamePhase != "waiting") {
+                // 获取当前游戏状态
+                std::string currentTurn = m_redis->getGameState(roomName, "current_turn");
+                std::string gameController = m_redis->getGameState(roomName, "game_controller");
+                std::string pendCards = m_redis->getGameState(roomName, "pend_cards");  // 获取当前控牌数据（已是二进制格式）
+                std::string pendCount = m_redis->getGameState(roomName, "pend_count");
+
+                // **调试信息：检查从Redis获取的数据**
+                std::cout << "Redis数据调试：" << std::endl;
+                std::cout << "  pendCount原始值=[" << pendCount << "] 长度=" << pendCount.length() << std::endl;
+                std::cout << "  pendCount为空？" << (pendCount.empty() ? "是" : "否") << std::endl;
+
+                // **修复：pend_cards现在已经是二进制格式，无需转换**
+                int actualCardCount = pendCount.empty() ? 0 : std::stoi(pendCount);
+                std::cout << "  解析后的actualCardCount=" << actualCardCount << std::endl;
+
+                // **2.1 发送基本游戏状态快照**
+                Message stateMsg;
+                stateMsg.resCode = ResponseCode::GameStateSync;
+                stateMsg.roomName = roomName;
+                stateMsg.userName = userName;
+                stateMsg.data1 = currentTurn;              // 当前轮到谁出牌
+                stateMsg.data2 = gameController;           // 当前控牌玩家
+                stateMsg.data3 = pendCards;                // 直接使用二进制格式的控牌数据
+                stateMsg.data4 = std::to_string(actualCardCount);  // 实际牌数
+
+                // **调试：检查发送前的消息内容**
+                std::cout << "消息发送前调试：" << std::endl;
+                std::cout << "  stateMsg.data1=[" << stateMsg.data1 << "]" << std::endl;
+                std::cout << "  stateMsg.data2=[" << stateMsg.data2 << "]" << std::endl;
+                std::cout << "  stateMsg.data3长度=" << stateMsg.data3.length() << std::endl;
+                std::cout << "  stateMsg.data4=[" << stateMsg.data4 << "] 长度=" << stateMsg.data4.length() << std::endl;
+
+                Codec stateCodec(&stateMsg);
+                playerIt->second(stateCodec.enCodeMsg());
+
+                std::cout << "已发送游戏状态：当前轮次=" << currentTurn
+                          << ", 控牌玩家=" << gameController 
+                          << ", 控牌数据长度=" << pendCards.length()
+                          << ", 实际牌数=" << actualCardCount << std::endl;
+
+                // **2.2 发送重连玩家的剩余手牌（核心功能）**
+                std::string playerCards = m_redis->getPlayerCards(roomName, userName);
+                if (!playerCards.empty()) {
+                    Message cardsMsg;
+                    cardsMsg.resCode = ResponseCode::PlayerHandSync;
+                    cardsMsg.roomName = roomName;
+                    cardsMsg.userName = userName;
+                    cardsMsg.data1 = playerCards;       // 玩家的剩余手牌数据
+
+                    Codec cardsCodec(&cardsMsg);
+                    playerIt->second(cardsCodec.enCodeMsg());
+
+                    std::cout << "已发送玩家手牌：" << userName << " -> " << playerCards << std::endl;
+                }
+
+                // **2.3 发送其他玩家的手牌数量（用于UI显示）**
+                std::string orderData = m_redis->getGamePlayerOrder(roomName);
+                std::vector<std::string> allPlayerNames = parsePlayerOrder(orderData);
+
+                std::string cardCountInfo;
+                for (const auto& playerName : allPlayerNames) {
+                    if (playerName != userName) {  // 不包括重连玩家自己
+                        std::string otherPlayerCards = m_redis->getPlayerCards(roomName, playerName);
+                        int cardCount = countCards(otherPlayerCards);  // 计算手牌数量
+                        cardCountInfo += playerName + ":" + std::to_string(cardCount) + "|";
+                    }
+                }
+
+                if (!cardCountInfo.empty()) {
+                    Message countMsg;
+                    countMsg.resCode = ResponseCode::PlayerCardCount;
+                    countMsg.roomName = roomName;
+                    countMsg.userName = userName;
+                    countMsg.data1 = cardCountInfo;     // 其他玩家手牌数量信息
+
+                    Codec countCodec(&countMsg);
+                    playerIt->second(countCodec.enCodeMsg());
+
+                    std::cout << "已发送其他玩家手牌数量：" << cardCountInfo << std::endl;
+                }
+            }
+        }
+
+        // 步骤3：发送重连同步结束信号
+        Message syncEndMsg;
+        syncEndMsg.resCode = ResponseCode::ReconnectSyncEnd;
+        syncEndMsg.userName = userName;
+        syncEndMsg.roomName = roomName;
+        Codec endCodec(&syncEndMsg);
+        playerIt->second(endCodec.enCodeMsg());  // 只发送给重连玩家
+
+        std::cout << "重连同步完成：" << userName << std::endl;
+
+    } catch (const std::exception& e) {
+        std::cout << "重连同步异常：" << e.what() << std::endl;
+    }
+}
+
+int Communication::countCards(const std::string& cardsData) {
+    if (cardsData.empty()) return 0;
+
+    // 手牌格式: "suit-point#suit-point#..."
+    // 计算#的数量就是牌的数量
+    int count = 0;
+    for (char c : cardsData) {
+        if (c == '#') count++;
+    }
+    return count;
+}
+
+
+void Communication::handleReconnectRequest(Message* reqMsg, Message& resMsg) {
+    try {
+        std::string userName = reqMsg->userName;
+        std::string roomName = reqMsg->roomName;
+
+        std::cout << "收到重连请求：用户=[" << userName << "] 房间=[" << roomName << "]" << std::endl;
+        // std::cout << "调试：reqMsg->userName=[" << (reqMsg->userName ? reqMsg->userName : "NULL")
+        //           << "] reqMsg->roomName=[" << (reqMsg->roomName ? reqMsg->roomName : "NULL") << "]" << std::endl;
+
+        // 检查用户名和房间名是否有效
+        if (userName.empty() || roomName.empty()) {
+            std::cout << "错误：用户名或房间名为空" << std::endl;
+            resMsg.resCode = ResponseCode::ReconnectFailed;
+            resMsg.data1 = "重连失败：无效的用户名或房间名";
+            return;
+        }
+
+        // 验证重连token
+        if (!m_redis || !m_redis->validateReconnectToken(roomName, userName)) {
+            std::cout << "重连token验证失败，检查游戏是否已结束" << std::endl;
+
+            // 验证失败时，更新用户登录状态为0，允许用户重新登录
+            std::string sql = "update information set status = 0 where name = ?";
+            if (m_mysql->prepare(sql)) {
+                MYSQL_BIND bind[1] = {0};
+                bind[0].buffer_type = MYSQL_TYPE_STRING;
+                bind[0].buffer = (void*)userName.c_str();
+                bind[0].buffer_length = userName.size();
+                m_mysql->bindParam(bind);
+                m_mysql->execute();
+                m_mysql->closeStmt();
+                std::cout << "已将用户 " << userName << " 的登录状态重置为0" << std::endl;
+            }
+
+            // token失效，可能是游戏已结束，调用专门的游戏结束检查
+            if (checkGameEndForReconnect(roomName, userName)) {
+                resMsg.resCode = ResponseCode::GameEnded;
+                resMsg.userName = userName;
+                resMsg.roomName = roomName;
+                resMsg.data1 = "游戏已结束";
+                std::cout << "游戏已结束，发送结束信息给重连客户端" << std::endl;
+            } else {
+                resMsg.resCode = ResponseCode::ReconnectFailed;
+                resMsg.data1 = "重连失败：游戏不存在或已结束";
+                std::cout << "重连失败：无法找到有效的游戏状态" << std::endl;
+            }
+            return;
+        }
+
+        // token验证成功，准备重连
+        std::cout << "重连token验证成功，开始重连流程" << std::endl;
+
+        // 更新连接信息
+        ConnectionManager::getInstance()->updateHeartbeat(m_connectionId);
+
+        // 从断线列表中移除该玩家
+        DisconnectManager::getInstance()->removePlayerFromDisconnectList(roomName, userName);
+
+        // 关键修复：更新RoomList中的回调函数
+        // 重连时客户端建立了新连接，需要更新回调函数指向新的Communication对象
+        RoomList::getInstance()->addUser(roomName, userName, m_sendCallback);
+        std::cout << "已更新玩家 " << userName << " 在房间 " << roomName << " 的回调函数" << std::endl;
+
+
+        // **重连成功时，更新用户登录状态为1（在线）**
+        std::string sql = "update information set status = 1 where name = ?";
+        if (m_mysql->prepare(sql)) {
+            MYSQL_BIND bind[1] = {0};
+            bind[0].buffer_type = MYSQL_TYPE_STRING;
+            bind[0].buffer = (void*)userName.c_str();
+            bind[0].buffer_length = userName.size();
+            m_mysql->bindParam(bind);
+            m_mysql->execute();
+            m_mysql->closeStmt();
+            std::cout << "已将用户 " << userName << " 的登录状态更新为1（在线）" << std::endl;
+        }
+
+        // **重连成功时，重新注册到ConnectionManager**
+        m_currentUserName = userName;
+        m_currentRoomName = roomName;
+        ConnectionManager::getInstance()->registerConnection(m_connectionId, userName, roomName, this);
+        std::cout << "已重新注册用户 " << userName << " 到ConnectionManager" << std::endl;
+
+        // 设置重连成功响应
+        resMsg.resCode = ResponseCode::ReconnectSuccess;
+        resMsg.userName = userName;
+        resMsg.roomName = roomName;
+        resMsg.data1 = "重连成功";
+
+        std::cout << "重连请求处理成功：" << userName << std::endl;
+
+    } catch (const std::exception& e) {
+        std::cout << "处理重连请求时异常：" << e.what() << std::endl;
+        resMsg.resCode = ResponseCode::ReconnectFailed;
+        resMsg.data1 = "服务器内部错误";
+    }
+}
+
+bool Communication::checkGameEndForReconnect(const std::string& roomName, const std::string& userName) {
+    if (!m_redis) return false;
+
+    // 专门用于重连场景的游戏结束检查，不向其他玩家发送消息
+    // 1. 首先检查游戏状态
+    std::string gamePhase = m_redis->getGameState(roomName, "game_phase");
+    if (gamePhase.empty()) {
+        std::cout << "[重连检查]游戏状态为空，可能游戏尚未开始或已结束" << std::endl;
+        return false;  // 游戏可能还没开始，不应该结束
+    }
+
+    if (gamePhase == "ended") {
+        std::cout << "[重连检查]游戏状态已标记为结束" << std::endl;
+        return true;   // 游戏已正式结束
+    }
+
+    // 2. 检查房间中是否有玩家真正胜利（手牌为空）
+    auto players = RoomList::getInstance()->getPlayers(roomName);
+    bool hasWinner = false;
+    std::string winner;
+
+    for (const auto& player : players) {
+        std::string playerCards = m_redis->getPlayerCards(roomName, player.first);
+        if (playerCards.empty() || playerCards == "#") {
+            hasWinner = true;
+            winner = player.first;
+            std::cout << "[重连检查]发现胜利玩家：" << winner << " (手牌为空)" << std::endl;
+            break;
+        }
+    }
+
+    // 只有确实发现胜利玩家才返回游戏结束状态，但不执行完整的游戏结束流程
+    if (hasWinner) {
+        std::cout << "[重连检查]检测到游戏结束：玩家 " << winner << " 获胜（仅检查，不发送消息）" << std::endl;
+        return true;
+    }
+
+    std::cout << "[重连检查]游戏仍在进行中，房间：" << roomName << std::endl;
+    return false;
+}
+
+std::string Communication::convertCardsToQDataStream(const std::string& cardsStr, int& cardCount) {
+    std::string binaryData;
+    cardCount = 0;
+    
+    if (cardsStr.empty()) {
+        return binaryData;
+    }
+    
+    // 解析字符串格式的牌数据："1-2#3-4#"
+    std::stringstream ss(cardsStr);
+    std::string cardInfo;
+    
+    while (std::getline(ss, cardInfo, '#')) {
+        if (cardInfo.empty()) continue;
+        
+        size_t dashPos = cardInfo.find('-');
+        if (dashPos == std::string::npos) continue;
+        
+        try {
+            int suit = std::stoi(cardInfo.substr(0, dashPos));
+            int point = std::stoi(cardInfo.substr(dashPos + 1));
+            
+            // 转换为网络字节序（大端序）
+            int networkSuit = htonl(suit);
+            int networkPoint = htonl(point);
+            
+            // 添加到二进制数据中
+            binaryData.append(reinterpret_cast<const char*>(&networkSuit), sizeof(int));
+            binaryData.append(reinterpret_cast<const char*>(&networkPoint), sizeof(int));
+            
+            cardCount++;
+            
+        } catch (const std::exception& e) {
+            std::cout << "解析牌数据时出错: " << cardInfo << " 错误: " << e.what() << std::endl;
+            continue;
+        }
+    }
+    
+    std::cout << "转换牌数据：" << cardsStr << " -> " << cardCount << " 张牌的二进制数据" << std::endl;
+    return binaryData;
+}

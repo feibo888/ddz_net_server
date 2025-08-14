@@ -22,7 +22,9 @@ void RoomList::addUser(std::string roomName, std::string userName, callback send
     {
         //找到了
         auto& value = m_roomMap[roomName];
-        value.insert(make_pair(userName, sendMessage));
+        // 修复：使用operator[]强制更新回调函数，而不是insert()
+        // 这样可以确保重连时更新回调函数指向新的Communication对象
+        value[userName] = sendMessage;
     }
     else
     {
